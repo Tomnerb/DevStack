@@ -1,0 +1,26 @@
+#!/bin/sh
+set -eu
+
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+mkdir -p /run/containerd /var/lib/containerd /var/log/devstack /etc/containerd
+mount -t cgroup2 none /sys/fs/cgroup 2>/dev/null || true
+
+cat >/etc/containerd/config.toml <<'EOF'
+version = 3
+root = "/var/lib/containerd"
+state = "/run/containerd"
+
+[grpc]
+  address = "/run/containerd/containerd.sock"
+EOF
+
+pkill -f '/usr/local/bin/containerd' 2>/dev/null || true
+nohup /usr/local/bin/containerd --config /etc/containerd/config.toml >/var/log/devstack/containerd.log 2>&1 &
+
+for _ in $(seq 1 120); do
+  [ -S /run/containerd/containerd.sock ] && break
+  sleep 0.1
+done
+
+echo "DevStack dedicated WSL2 containerd engine ready."
