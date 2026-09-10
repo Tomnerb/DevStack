@@ -1,0 +1,560 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { Call } from '@wailsio/runtime'
+
+interface AppSettings {
+  settingsVersion: number
+  engineBackend: string
+  runtimeProvider: string
+  dockerEndpoint: string
+  wslDistro: string
+  closeToTray: boolean
+  startAtLogin: boolean
+  startHidden: boolean
+  autoReconnectEngine: boolean
+  startEngineOnLaunch: boolean
+}
+
+interface PlatformInfo {
+  os: string
+  arch: string
+  dockerCli?: string
+  dockerContext?: string
+  dockerHost?: string
+}
+
+interface EngineStatus {
+  backend: string
+  platform: string
+  supported: boolean
+  helperInstalled: boolean
+  engineInstalled: boolean
+  running: boolean
+  endpoint?: string
+  message?: string
+  wslDistros?: string[]
+}
+
+interface EngineActionResult {
+  status: EngineStatus
+  output?: string
+}
+
+interface RuntimeCapabilities {
+  containers: boolean
+  lifecycle: boolean
+  stats: boolean
+  logs: boolean
+  terminal: boolean
+  images: boolean
+  pullImages: boolean
+  createContainer: boolean
+  volumes: boolean
+  networks: boolean
+  portPublishing: boolean
+  dns: boolean
+  compose: boolean
+}
+
+interface RuntimeOverview {
+  active: {
+    provider: string
+    displayName: string
+    endpoint?: string
+    connected: boolean
+    experimental: boolean
+    capabilities: RuntimeCapabilities
+    message?: string
+  }
+  candidates: Array<{
+    provider: string
+    displayName: string
+    available: boolean
+    detected: boolean
+    selectable: boolean
+    experimental: boolean
+    endpoint?: string
+    message?: string
+  }>
+}
+
+const props = defineProps<{ platform: PlatformInfo | null }>()
+const emit = defineEmits<{ engineChanged: [] }>()
+
+const settings = ref<AppSettings>({
+  settingsVersion: 2,
+  engineBackend: 'external',
+  runtimeProvider: 'docker',
+  dockerEndpoint: '',
+  wslDistro: '',
+  closeToTray: true,
+  startAtLogin: false,
+  startHidden: false,
+  autoReconnectEngine: true,
+  startEngineOnLaunch: false,
+})
+const status = ref<EngineStatus | null>(null)
+const loading = ref(true)
+const busy = ref('')
+const dockerIdentity = ref<{
+  endpoint: string
+  kind: string
+  displayName: string
+} | null>(null)
+const error = ref('')
+const output = ref('')
+const runtimeOverview = ref<RuntimeOverview | null>(null)
+
+const backendOptions = computed(() => {
+  const native = props.platform?.os === 'darwin'
+    ? { value: 'vz', title: 'DevStack Native', desc: 'Run a minimal Linux guest with Apple Virtualization.framework.' }
+    : props.platform?.os === 'windows'
+      ? { value: 'wsl2', title: 'DevStack Native', desc: 'Run the dedicated DevStack engine with WSL2.' }
+      : { value: 'native', title: 'DevStack Native', desc: 'Use direct containerd in the dedicated devstack namespace.' }
+
+  return [
+    native,
+    { value: 'external', title: 'External Docker', desc: 'Use the saved Docker Desktop, System Docker, rootless Docker, or custom endpoint.' },
+  ]
+})
+
+const nativeBackend = computed(() => {
+  if (props.platform?.os === 'darwin') return 'vz'
+  if (props.platform?.os === 'windows') return 'wsl2'
+  return 'native'
+})
+
+async function refresh() {
+  loading.value = true
+  error.value = ''
+  try {
+    const [engineStatus, runtimeStatus, identity] = await Promise.all([
+      Call.ByName(
+        'main.DockerService.GetEngineStatus',
+        settings.value.engineBackend,
+        settings.value.wslDistro,
+      ),
+      Call.ByName('main.DockerService.GetRuntimeOverview'),
+      Call.ByName('main.DockerService.DockerEndpointIdentity'),
+    ])
+
+    status.value = engineStatus as EngineStatus
+    runtimeOverview.value = runtimeStatus as RuntimeOverview
+    dockerIdentity.value = identity as {
+      endpoint: string
+      kind: string
+      displayName: string
+    }
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function save() {
+  await Call.ByName('main.AppService.UpdateSettings', settings.value)
+}
+
+async function chooseBackend(value: string) {
+  if (busy.value) return
+  busy.value = `backend:${value}`
+  error.value = ''
+  try {
+    const provider = await Call.ByName(
+      'main.DockerService.SelectEngineBackend',
+      value,
+      settings.value.wslDistro,
+      settings.value.dockerEndpoint,
+    ) as string
+    settings.value.engineBackend = value
+    settings.value.runtimeProvider = provider
+    await save()
+    await refresh()
+    emit('engineChanged')
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    busy.value = ''
+  }
+}
+
+async function chooseDistro(value: string) {
+  settings.value.wslDistro = value
+  await save()
+  await refresh()
+}
+
+async function runAction(action: 'start' | 'stop' | 'delete' | 'provision') {
+  if (busy.value) return
+
+  if (action === 'delete' && !window.confirm('Delete the DevStack native VM and its local container data?')) return
+  if (action === 'provision' && !window.confirm(`Install Docker Engine and socat inside WSL distro "${settings.value.wslDistro}"?`)) return
+
+  busy.value = action
+  error.value = ''
+  output.value = ''
+  try {
+    let result: EngineActionResult
+    if (action === 'start') {
+      result = await Call.ByName('main.DockerService.StartManagedEngine', settings.value.engineBackend, settings.value.wslDistro) as EngineActionResult
+    } else if (action === 'stop') {
+      result = await Call.ByName('main.DockerService.StopManagedEngine', settings.value.engineBackend, settings.value.wslDistro) as EngineActionResult
+    } else if (action === 'delete') {
+      result = await Call.ByName('main.DockerService.DeleteManagedEngine', settings.value.engineBackend, settings.value.wslDistro) as EngineActionResult
+    } else {
+      result = await Call.ByName('main.DockerService.ProvisionWSLEngine', settings.value.wslDistro) as EngineActionResult
+    }
+    status.value = result.status
+    output.value = result.output || ''
+    emit('engineChanged')
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+    await refresh()
+  } finally {
+    busy.value = ''
+  }
+}
+
+async function reconnectDocker() {
+  if (busy.value) return
+
+  busy.value = 'reconnect'
+  error.value = ''
+  output.value = ''
+
+  try {
+    const result = await Call.ByName(
+      'main.DockerService.RecoverDockerConnection',
+    ) as EngineActionResult
+
+    status.value = result.status
+    output.value = result.output || ''
+    await refresh()
+    emit('engineChanged')
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+    await refresh()
+  } finally {
+    busy.value = ''
+  }
+}
+
+async function selectRuntime(provider: string) {
+  await chooseBackend(provider === 'docker' ? 'external' : nativeBackend.value)
+}
+
+async function toggle(
+  key:
+    | 'closeToTray'
+    | 'startAtLogin'
+    | 'startHidden'
+    | 'autoReconnectEngine'
+    | 'startEngineOnLaunch',
+  value: boolean,
+) {
+  settings.value[key] = value
+  try { await save() } catch (err) { error.value = err instanceof Error ? err.message : String(err) }
+}
+
+onMounted(async () => {
+  try {
+    settings.value = await Call.ByName('main.AppService.GetSettings') as AppSettings
+    await refresh()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err)
+    loading.value = false
+  }
+})
+</script>
+
+<template>
+  <div class="engine-settings space-y-5">
+    <section class="panel p-6">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h3 class="font-semibold">Container Engine</h3>
+          <p class="mt-1 text-sm text-zinc-500">Connect to an existing Docker endpoint or let DevStack manage a lightweight backend.</p>
+        </div>
+        <button class="toolbar-button" :disabled="loading || !!busy" @click="refresh">{{ loading ? 'Checking…' : 'Refresh Status' }}</button>
+      </div>
+
+      <div class="mt-5 grid gap-3 lg:grid-cols-2">
+        <button
+          v-for="item in backendOptions"
+          :key="item.value"
+          :disabled="!!busy"
+          class="backend-card rounded-xl border p-4 text-left transition"
+          :class="settings.engineBackend === item.value ? 'border-sky-700 bg-sky-950/20' : 'border-zinc-800 bg-zinc-900/40 hover:border-zinc-700'"
+          @click="chooseBackend(item.value)"
+        >
+          <div class="font-medium">{{ item.title }}</div>
+          <div class="mt-1 text-xs leading-5 text-zinc-500">{{ item.desc }}</div>
+        </button>
+      </div>
+
+      <div v-if="settings.engineBackend === 'external'" class="mt-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+        <label class="text-xs text-zinc-400">Saved Docker endpoint</label>
+        <div class="mt-2 flex gap-2">
+          <input
+            v-model="settings.dockerEndpoint"
+            class="field min-w-0 flex-1 font-mono"
+            placeholder="unix:///var/run/docker.sock or tcp://host:2375"
+          />
+          <button class="toolbar-button" :disabled="!settings.dockerEndpoint.trim() || !!busy" @click="chooseBackend('external')">
+            Apply endpoint
+          </button>
+        </div>
+        <p class="mt-2 text-xs text-zinc-600">This endpoint is kept as a separate engine identity; reconnect never searches for a substitute daemon.</p>
+      </div>
+
+      <div v-if="settings.engineBackend === 'wsl2' && status" class="mt-5 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+        <label class="text-xs text-zinc-400">WSL distribution</label>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <select class="field min-w-64" :value="settings.wslDistro" @change="chooseDistro(($event.target as HTMLSelectElement).value)">
+            <option value="">Choose distribution…</option>
+            <option v-for="distro in status.wslDistros || []" :key="distro" :value="distro">{{ distro }}</option>
+          </select>
+          <button class="toolbar-button" :disabled="!settings.wslDistro || !!busy" @click="runAction('provision')">{{ busy === 'provision' ? 'Provisioning…' : 'Provision Docker' }}</button>
+        </div>
+        <p class="mt-2 text-xs text-zinc-600">A dedicated Ubuntu/Debian WSL distro is recommended. DevStack never unregisters it.</p>
+      </div>
+
+      <div v-if="status" class="engine-status mt-5 rounded-xl border border-zinc-800 bg-black/20 p-5">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <span class="h-3 w-3 rounded-full" :class="status.running ? 'bg-emerald-500' : 'bg-zinc-600'" />
+            <div>
+              <div class="font-medium">{{ status.running ? 'Engine running' : settings.engineBackend === 'external' ? 'External Docker offline' : 'DevStack engine stopped' }}</div>
+              <div class="mt-0.5 text-xs text-zinc-500">{{ status.message }}</div>
+              <div
+                v-if="settings.engineBackend === 'external' && dockerIdentity?.endpoint"
+                class="mt-1 text-[11px] text-zinc-600"
+              >
+                {{ dockerIdentity.displayName }} ·
+                <span class="font-mono">{{ dockerIdentity.endpoint }}</span>
+              </div>
+              <div
+                v-if="settings.engineBackend === 'external' && dockerIdentity?.kind === 'docker-desktop'"
+                class="mt-1 text-[11px] text-amber-400/90"
+              >
+                Docker Desktop and System Docker use separate container stores.
+              </div>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button
+              v-if="!status.running && settings.engineBackend === 'external'"
+              class="toolbar-button"
+              :disabled="!!busy"
+              @click="reconnectDocker"
+            >
+              {{ busy === 'reconnect' ? 'Reconnecting…' : 'Reconnect' }}
+            </button>
+            <button
+              v-if="!status.running && settings.engineBackend !== 'external'"
+              class="primary-button"
+              :disabled="!!busy"
+              @click="runAction('start')"
+            >
+              {{ busy === 'start' ? 'Starting engine…' : 'Start DevStack Engine' }}
+            </button>
+            <button v-if="status.running && ['vz','wsl2'].includes(settings.engineBackend)" class="toolbar-button" :disabled="!!busy" @click="runAction('stop')">{{ busy === 'stop' ? 'Stopping…' : 'Stop Managed Engine' }}</button>
+            <button v-if="settings.engineBackend === 'vz' && status.engineInstalled" class="danger-button" :disabled="!!busy" @click="runAction('delete')">Delete VM</button>
+          </div>
+        </div>
+
+        <div class="mt-4 grid gap-3 text-xs md:grid-cols-4">
+          <div class="status-cell"><span>Backend</span><strong>{{ settings.engineBackend }}</strong></div>
+          <div class="status-cell"><span>Helper</span><strong>{{ status.helperInstalled ? 'available' : 'missing' }}</strong></div>
+          <div class="status-cell"><span>Engine</span><strong>{{ status.engineInstalled ? 'installed' : 'not installed' }}</strong></div>
+          <div class="status-cell"><span>Endpoint</span><strong class="truncate font-mono" :title="status.endpoint">{{ status.endpoint || '—' }}</strong></div>
+        </div>
+
+        <pre v-if="output" class="mt-4 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg bg-black p-3 font-mono text-xs text-zinc-400">{{ output }}</pre>
+      </div>
+
+      <div v-if="settings.engineBackend === 'vz' && status && !status.helperInstalled" class="mt-4 rounded-lg border border-amber-900/60 bg-amber-950/20 p-4 text-sm text-amber-300">
+        Build/install the native VMM helper and guest assets. See <code class="ml-2 rounded bg-black/30 px-2 py-1 font-mono text-xs">README-MILESTONE13.md</code>
+      </div>
+
+      <div v-if="error" class="mt-4 whitespace-pre-wrap rounded-lg border border-red-900 bg-red-950/30 p-4 text-sm text-red-300">{{ error }}</div>
+    </section>
+
+    <section v-if="runtimeOverview" class="panel p-6">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 class="font-semibold">Container Runtime</h3>
+          <p class="mt-1 text-sm text-zinc-500">
+            Container lifecycle is now behind a runtime-neutral Go interface.
+          </p>
+        </div>
+
+        <span
+          class="rounded-full px-2 py-1 text-xs"
+          :class="
+            runtimeOverview.active.connected
+              ? 'bg-emerald-500/10 text-emerald-400'
+              : 'bg-red-500/10 text-red-400'
+          "
+        >
+          {{ runtimeOverview.active.connected ? 'connected' : 'offline' }}
+        </span>
+      </div>
+
+      <div class="mt-4 rounded-lg border border-zinc-800 bg-black/20 p-4">
+        <div class="font-medium">{{ runtimeOverview.active.displayName }}</div>
+        <div class="mt-1 text-xs leading-5 text-zinc-500">
+          {{ runtimeOverview.active.message }}
+        </div>
+        <div
+          v-if="runtimeOverview.active.endpoint"
+          class="mt-2 truncate font-mono text-[10px] text-zinc-600"
+          :title="runtimeOverview.active.endpoint"
+        >
+          {{ runtimeOverview.active.endpoint }}
+        </div>
+
+        <div class="mt-3 flex flex-wrap gap-1">
+          <span
+            v-for="(enabled, capability) in runtimeOverview.active.capabilities"
+            :key="capability"
+            v-show="enabled"
+            class="rounded-full border border-zinc-700 px-2 py-1 text-[10px] text-zinc-400"
+          >
+            {{ capability }}
+          </span>
+        </div>
+      </div>
+
+      <div class="mt-4 space-y-2">
+        <div
+          v-for="candidate in runtimeOverview.candidates"
+          :key="candidate.provider"
+          class="flex items-start justify-between gap-3 rounded-lg border border-zinc-800 p-3"
+        >
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="font-medium">{{ candidate.displayName }}</span>
+              <span
+                v-if="candidate.experimental"
+                class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400"
+              >
+                experimental
+              </span>
+            </div>
+            <div class="mt-1 text-xs leading-5 text-zinc-500">
+              {{ candidate.message }}
+            </div>
+            <div
+              v-if="candidate.endpoint"
+              class="mt-1 truncate font-mono text-[10px] text-zinc-700"
+              :title="candidate.endpoint"
+            >
+              {{ candidate.endpoint }}
+            </div>
+          </div>
+
+          <div class="flex shrink-0 items-center gap-2">
+            <span
+              v-if="runtimeOverview.active.provider === candidate.provider"
+              class="rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] text-emerald-400"
+            >
+              active
+            </span>
+
+            <button
+              v-else-if="candidate.selectable"
+              class="toolbar-button"
+              :disabled="!!busy"
+              @click="selectRuntime(candidate.provider)"
+            >
+              {{
+                busy === `backend:${candidate.provider === 'docker' ? 'external' : nativeBackend}`
+                  ? 'Switching…'
+                  : 'Use Runtime'
+              }}
+            </button>
+
+            <span
+              v-else
+              class="rounded-full px-2 py-1 text-[10px]"
+              :class="
+                candidate.detected
+                  ? 'bg-amber-500/10 text-amber-400'
+                  : 'bg-zinc-800 text-zinc-500'
+              "
+            >
+              {{ candidate.detected ? 'detected' : 'not detected' }}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <p class="mt-4 text-xs leading-5 text-zinc-600">
+        On Linux, direct containerd uses the dedicated devstack namespace. CNI bridge networking, host DNS, and localhost TCP port publishing become available after the one-time networking helper is installed.
+      </p>
+    </section>
+
+    <section class="panel p-6">
+      <h3 class="font-semibold">Desktop Behavior</h3>
+      <div class="mt-4 divide-y divide-zinc-800 rounded-lg border border-zinc-800">
+        <label class="setting-row">
+          <div>
+            <div class="font-medium">Auto reconnect engine</div>
+            <div class="text-xs text-zinc-500">
+              For External Docker, reconnect only to the saved endpoint. Native backends never fall through to another Docker daemon.
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            :checked="settings.autoReconnectEngine"
+            @change="toggle('autoReconnectEngine', ($event.target as HTMLInputElement).checked)"
+          />
+        </label>
+        <label class="setting-row">
+          <div>
+            <div class="font-medium">Start engine when DevStack starts</div>
+            <div class="text-xs text-zinc-500">
+              Start or reconnect only the selected DevStack-managed backend. External Docker is never launched implicitly.
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            :checked="settings.startEngineOnLaunch"
+            @change="toggle('startEngineOnLaunch', ($event.target as HTMLInputElement).checked)"
+          />
+        </label>
+        <label class="setting-row"><div><div class="font-medium">Close to tray</div><div class="text-xs text-zinc-500">Hide instead of quitting when the main window closes.</div></div><input type="checkbox" :checked="settings.closeToTray" @change="toggle('closeToTray', ($event.target as HTMLInputElement).checked)" /></label>
+        <label class="setting-row"><div><div class="font-medium">Start at login</div><div class="text-xs text-zinc-500">Use native Wails autostart integration.</div></div><input type="checkbox" :checked="settings.startAtLogin" @change="toggle('startAtLogin', ($event.target as HTMLInputElement).checked)" /></label>
+        <label class="setting-row"><div><div class="font-medium">Start hidden</div><div class="text-xs text-zinc-500">Launch directly into the tray.</div></div><input type="checkbox" :checked="settings.startHidden" @change="toggle('startHidden', ($event.target as HTMLInputElement).checked)" /></label>
+      </div>
+    </section>
+  </div>
+</template>
+
+<style scoped>
+.panel { border:1px solid rgb(255 255 255/.07); border-radius:1.1rem; background:linear-gradient(145deg,rgb(27 28 40/.9),rgb(19 20 29/.86)); box-shadow:inset 0 1px rgb(255 255 255/.035),0 14px 38px rgb(0 0 0/.12); }
+.toolbar-button,.primary-button,.danger-button { border-radius:.65rem; padding:.52rem .82rem; font-size:.75rem; transition:160ms ease; }
+.toolbar-button { border:1px solid rgb(255 255 255/.09); background:rgb(255 255 255/.04); color:#d9d9e2; }
+.toolbar-button:hover { border-color:rgb(255 255 255/.15); background:rgb(255 255 255/.075); transform:translateY(-1px); }
+.primary-button { border:1px solid rgb(159 137 255/.42); background:linear-gradient(135deg,#8067ed,#6245dc); color:white; font-weight:600; box-shadow:0 7px 18px rgb(91 62 211/.22),inset 0 1px rgb(255 255 255/.18); }
+.danger-button { border:1px solid rgb(127 29 29); background:rgb(69 10 10/.35); color:rgb(248 113 113); }
+.toolbar-button:disabled,.primary-button:disabled,.danger-button:disabled { opacity:.4; cursor:not-allowed; }
+.field { border:1px solid rgb(255 255 255/.085); border-radius:.65rem; background:rgb(6 7 12/.48); padding:.55rem .75rem; font-size:.78rem; color:#ededf2; outline:none; }
+.field:focus { border-color:rgb(130 103 238/.75); box-shadow:0 0 0 3px rgb(111 82 226/.12); }
+.backend-card { position:relative; overflow:hidden; border-color:rgb(255 255 255/.07)!important; background:rgb(255 255 255/.025)!important; box-shadow:inset 0 1px rgb(255 255 255/.025); }
+.backend-card:hover { border-color:rgb(255 255 255/.14)!important; background:rgb(255 255 255/.045)!important; transform:translateY(-1px); }
+.backend-card.border-sky-700 { border-color:rgb(133 105 244/.55)!important; background:linear-gradient(135deg,rgb(111 82 226/.18),rgb(111 82 226/.05))!important; box-shadow:inset 0 1px rgb(255 255 255/.05),0 9px 26px rgb(54 37 122/.14); }
+.backend-card.border-sky-700::after { content:'✓'; position:absolute; top:.85rem; right:.9rem; display:grid; width:1.4rem; height:1.4rem; place-items:center; border-radius:999px; background:#775be5; color:white; font-size:.7rem; }
+.engine-status { border-color:rgb(255 255 255/.06)!important; background:linear-gradient(135deg,rgb(9 10 17/.5),rgb(44 35 82/.16))!important; }
+.status-cell { min-width:0; border:1px solid rgb(255 255 255/.04); border-radius:.7rem; background:rgb(255 255 255/.025); padding:.8rem; display:flex; flex-direction:column; gap:.25rem; }
+.status-cell span { color:rgb(113 113 122); }
+.status-cell strong { color:rgb(212 212 216); }
+.setting-row { display:flex; cursor:pointer; align-items:center; justify-content:space-between; gap:1rem; padding:1rem 1.1rem; font-size:.85rem; transition:background 150ms ease; }
+.setting-row:hover { background:rgb(255 255 255/.025); }
+.setting-row input[type="checkbox"] { position:relative; width:2.15rem; height:1.25rem; flex:none; appearance:none; border:1px solid rgb(255 255 255/.12); border-radius:999px; background:rgb(255 255 255/.08); transition:160ms ease; }
+.setting-row input[type="checkbox"]::after { content:''; position:absolute; top:2px; left:2px; width:.9rem; height:.9rem; border-radius:999px; background:#9a9aa5; box-shadow:0 2px 5px rgb(0 0 0/.3); transition:160ms ease; }
+.setting-row input[type="checkbox"]:checked { border-color:rgb(151 127 250/.6); background:linear-gradient(135deg,#8067ed,#6245dc); }
+.setting-row input[type="checkbox"]:checked::after { left:calc(100% - 1.02rem); background:white; }
+</style>
