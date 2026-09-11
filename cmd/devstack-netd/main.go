@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -14,12 +15,16 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/pkg/cio"
 	gocni "github.com/containerd/go-cni"
+	"github.com/opencontainers/runtime-spec/specs-go"
 )
 
 const (
@@ -52,6 +57,39 @@ type removeRequest struct {
 	ID string `json:"id"`
 }
 
+// containerCreateRequest is intentionally narrow: the privileged helper only
+// creates DevStack-labelled containers in its own namespace. It never accepts
+// arbitrary shell input.
+type containerCreateRequest struct {
+	ID          string   `json:"id"`
+	Image       string   `json:"image"`
+	Command     []string `json:"command"`
+	Snapshotter string   `json:"snapshotter"`
+	AutoStart   bool     `json:"autoStart"`
+}
+
+type imageImportRequest struct {
+	Archive string `json:"archive"`
+}
+
+type volumeCopyRequest struct {
+	Name   string `json:"name"`
+	Source string `json:"source"`
+}
+
+type volumeInfoResponse struct {
+	Name       string            `json:"name"`
+	Driver     string            `json:"driver"`
+	Scope      string            `json:"scope"`
+	Mountpoint string            `json:"mountpoint"`
+	CreatedAt  string            `json:"createdAt"`
+	Labels     map[string]string `json:"labels,omitempty"`
+}
+
+type volumeRemoveRequest struct {
+	Name string `json:"name"`
+}
+
 type state struct {
 	ID           string        `json:"id"`
 	NetNSName    string        `json:"netnsName"`
@@ -76,6 +114,47 @@ type server struct {
 	pluginDirs []string
 	cni        gocni.CNI
 	mu         sync.Mutex
+	terminalMu sync.Mutex
+	terminals  map[string]*terminalState
+}
+
+type terminalState struct {
+	client  *containerd.Client
+	process containerd.Process
+	stdin   io.WriteCloser
+	output  *terminalBuffer
+}
+type terminalBuffer struct {
+	mu     sync.Mutex
+	data   []byte
+	closed bool
+	err    string
+}
+
+func (b *terminalBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	b.data = append(b.data, p...)
+	b.mu.Unlock()
+	return len(p), nil
+}
+func (b *terminalBuffer) after(offset int64) (string, int64, bool, string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > int64(len(b.data)) {
+		offset = int64(len(b.data))
+	}
+	return string(b.data[offset:]), int64(len(b.data)), b.closed, b.err
+}
+func (b *terminalBuffer) finish(err error) {
+	b.mu.Lock()
+	b.closed = true
+	if err != nil {
+		b.err = err.Error()
+	}
+	b.mu.Unlock()
 }
 
 func main() {
@@ -141,6 +220,7 @@ func main() {
 		configFile: *configFile,
 		pluginDirs: pluginDirs,
 		cni:        cni,
+		terminals:  make(map[string]*terminalState),
 	}
 
 	mux := http.NewServeMux()
@@ -148,6 +228,17 @@ func main() {
 	mux.HandleFunc("/v1/setup", srv.handleSetup)
 	mux.HandleFunc("/v1/remove", srv.handleRemove)
 	mux.HandleFunc("/v1/network", srv.handleInspect)
+	mux.HandleFunc("/v1/containers/create", srv.handleContainerCreate)
+	mux.HandleFunc("/v1/migration/images/import", srv.handleImageImport)
+	mux.HandleFunc("/v1/migration/images/upload", srv.handleImageUpload)
+	mux.HandleFunc("/v1/migration/volumes/copy", srv.handleVolumeCopy)
+	mux.HandleFunc("/v1/migration/volumes/upload", srv.handleVolumeUpload)
+	mux.HandleFunc("/v1/volumes", srv.handleVolumes)
+	mux.HandleFunc("/v1/volumes/remove", srv.handleVolumeRemove)
+	mux.HandleFunc("/v1/terminals/open", srv.handleTerminalOpen)
+	mux.HandleFunc("/v1/terminals/input", srv.handleTerminalInput)
+	mux.HandleFunc("/v1/terminals/output", srv.handleTerminalOutput)
+	mux.HandleFunc("/v1/terminals/close", srv.handleTerminalClose)
 
 	httpServer := &http.Server{
 		Handler:           mux,
@@ -160,6 +251,459 @@ func main() {
 		!errors.Is(err, http.ErrServerClosed) {
 		fatal(err)
 	}
+}
+
+func (s *server) handleImageImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var request imageImportRequest
+	if err := decodeJSON(r, &request); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	archive := filepath.Clean(request.Archive)
+	if !strings.HasPrefix(archive, "/tmp/devstack-docker-images-") || !strings.HasSuffix(archive, ".tar") {
+		http.Error(w, "invalid migration archive", http.StatusBadRequest)
+		return
+	}
+	info, err := os.Stat(archive)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 40<<30 {
+		http.Error(w, "migration archive is unavailable or invalid", http.StatusBadRequest)
+		return
+	}
+	output, err := exec.Command("ctr", "--address", "/run/containerd/containerd.sock", "--namespace", "devstack", "images", "import", archive).CombinedOutput()
+	if err != nil {
+		http.Error(w, strings.TrimSpace(string(output)), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Docker images imported into DevStack Native"})
+}
+
+// handleImageUpload receives an archive over the Unix socket instead of a
+// caller-owned pathname. The service has PrivateTmp enabled, so it cannot (and
+// must not) rely on seeing the desktop user's /tmp namespace.
+func (s *server) handleImageUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 40<<30)
+	archive, err := os.CreateTemp(s.stateDir, "migration-image-*.tar")
+	if err != nil {
+		http.Error(w, "could not create migration archive", http.StatusInternalServerError)
+		return
+	}
+	archivePath := archive.Name()
+	defer os.Remove(archivePath)
+
+	bytesWritten, copyErr := io.Copy(archive, r.Body)
+	closeErr := archive.Close()
+	if copyErr != nil || closeErr != nil || bytesWritten == 0 {
+		http.Error(w, "could not receive migration archive", http.StatusBadRequest)
+		return
+	}
+	output, err := exec.Command("ctr", "--address", "/run/containerd/containerd.sock", "--namespace", "devstack", "images", "import", archivePath).CombinedOutput()
+	if err != nil {
+		http.Error(w, strings.TrimSpace(string(output)), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Docker image imported into DevStack Native"})
+}
+
+func (s *server) handleVolumeCopy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var request volumeCopyRequest
+	if err := decodeJSON(r, &request); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(request.Name)
+	source := filepath.Clean(request.Source)
+	if !validID.MatchString(name) || !strings.HasPrefix(source, "/var/lib/docker/volumes/") {
+		http.Error(w, "invalid Docker volume source", http.StatusBadRequest)
+		return
+	}
+	info, err := os.Stat(source)
+	if err != nil || !info.IsDir() {
+		http.Error(w, "Docker volume data directory is unavailable", http.StatusBadRequest)
+		return
+	}
+	destination := filepath.Join(filepath.Dir(s.stateDir), "volumes", name)
+	if err := os.MkdirAll(destination, 0o750); err != nil {
+		http.Error(w, "could not create DevStack volume", http.StatusInternalServerError)
+		return
+	}
+	// Archive streaming preserves file modes and avoids placing user-controlled
+	// paths into a shell command. Existing data is retained for retry safety.
+	archive := exec.Command("tar", "-C", source, "-cf", "-", ".")
+	extract := exec.Command("tar", "-C", destination, "-xf", "-")
+	pipe, err := archive.StdoutPipe()
+	if err != nil {
+		http.Error(w, "could not prepare Docker volume copy", http.StatusInternalServerError)
+		return
+	}
+	extract.Stdin = pipe
+	var archiveErr, extractErr strings.Builder
+	archive.Stderr = &archiveErr
+	extract.Stderr = &extractErr
+	if err := archive.Start(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := extract.Start(); err != nil {
+		_ = archive.Process.Kill()
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	errExtract := extract.Wait()
+	errArchive := archive.Wait()
+	if errArchive != nil || errExtract != nil {
+		http.Error(w, strings.TrimSpace(archiveErr.String()+" "+extractErr.String()), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"name": name, "mountpoint": destination})
+}
+
+func (s *server) handleVolumeUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	name := strings.TrimSpace(r.URL.Query().Get("name"))
+	if !validID.MatchString(name) {
+		http.Error(w, "invalid volume name", http.StatusBadRequest)
+		return
+	}
+	destination := filepath.Join(filepath.Dir(s.stateDir), "volumes", name)
+	if err := os.MkdirAll(destination, 0o750); err != nil {
+		http.Error(w, "could not create DevStack volume", http.StatusInternalServerError)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 40<<30)
+	extract := exec.Command("tar", "-C", destination, "-xf", "-")
+	extract.Stdin = r.Body
+	output, err := extract.CombinedOutput()
+	if err != nil {
+		http.Error(w, strings.TrimSpace(string(output)), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"name": name, "mountpoint": destination})
+}
+
+func (s *server) handleVolumes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	volumeDir := filepath.Join(filepath.Dir(s.stateDir), "volumes")
+	entries, err := os.ReadDir(volumeDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeJSON(w, http.StatusOK, []volumeInfoResponse{})
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	volumes := make([]volumeInfoResponse, 0, len(entries))
+	for _, entry := range entries {
+		mountpoint := filepath.Join(volumeDir, entry.Name())
+		if entry.IsDir() {
+			// Directory-backed volume.
+		} else if (entry.Type() & os.ModeSymlink) != 0 {
+			info, err := os.Stat(mountpoint)
+			if err != nil || !info.IsDir() {
+				continue
+			}
+		} else {
+			continue
+		}
+
+		info, err := os.Stat(mountpoint)
+		if err != nil {
+			continue
+		}
+
+		volumes = append(volumes, volumeInfoResponse{
+			Name:       entry.Name(),
+			Driver:     "local",
+			Scope:      "local",
+			Mountpoint: mountpoint,
+			CreatedAt:  info.ModTime().Format(time.RFC3339),
+			Labels: map[string]string{
+				"devstack.io/managed": "true",
+			},
+		})
+	}
+
+	sort.Slice(volumes, func(i, j int) bool {
+		return volumes[i].Name < volumes[j].Name
+	})
+
+	writeJSON(w, http.StatusOK, volumes)
+}
+
+func (s *server) handleVolumeRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request volumeRemoveRequest
+	if err := decodeJSON(r, &request); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	name := strings.TrimSpace(request.Name)
+	if !validID.MatchString(name) {
+		http.Error(w, "invalid volume name", http.StatusBadRequest)
+		return
+	}
+
+	mountpoint := filepath.Join(filepath.Dir(s.stateDir), "volumes", name)
+	_, err := os.Stat(mountpoint)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := os.RemoveAll(mountpoint); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) handleContainerCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var request containerCreateRequest
+	if err := decodeJSON(r, &request); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !validID.MatchString(request.ID) || strings.TrimSpace(request.Image) == "" || strings.ContainsAny(request.Image, " \t\n") {
+		http.Error(w, "invalid container id or image reference", http.StatusBadRequest)
+		return
+	}
+	if request.Snapshotter != "overlayfs" && request.Snapshotter != "native" {
+		http.Error(w, "unsupported snapshotter", http.StatusBadRequest)
+		return
+	}
+	for _, arg := range request.Command {
+		if strings.ContainsRune(arg, 0) {
+			http.Error(w, "invalid command argument", http.StatusBadRequest)
+			return
+		}
+	}
+	var args []string
+	if request.AutoStart {
+		args = []string{"--address", "/run/containerd/containerd.sock", "--namespace", "devstack", "run", "--detach", "--snapshotter", request.Snapshotter, "--label", "devstack.io/managed=true", request.Image, request.ID}
+		args = append(args, request.Command...)
+	} else {
+		args = []string{"--address", "/run/containerd/containerd.sock", "--namespace", "devstack", "container", "create", "--snapshotter", request.Snapshotter, "--label", "devstack.io/managed=true", request.Image, request.ID}
+		args = append(args, request.Command...)
+	}
+	output, err := exec.Command("ctr", args...).CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			message = err.Error()
+		}
+		http.Error(w, "container create failed: "+message, http.StatusInternalServerError)
+		return
+	}
+	state := "created"
+	if request.AutoStart {
+		state = "running"
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"id": request.ID, "state": state})
+}
+
+type terminalOpenRequest struct {
+	ID     string `json:"id"`
+	Width  uint   `json:"width"`
+	Height uint   `json:"height"`
+}
+type terminalInputRequest struct {
+	Session string `json:"session"`
+	Input   string `json:"input"`
+}
+
+func (s *server) handleTerminalOpen(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	var request terminalOpenRequest
+	if err := decodeJSON(r, &request); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	if !validID.MatchString(request.ID) {
+		http.Error(w, "invalid container id", 400)
+		return
+	}
+	cli, err := containerd.New("/run/containerd/containerd.sock", containerd.WithDefaultNamespace("devstack"))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	container, err := cli.LoadContainer(r.Context(), request.ID)
+	if err != nil {
+		cli.Close()
+		http.Error(w, err.Error(), 404)
+		return
+	}
+	info, err := container.Info(r.Context())
+	if err != nil || info.Labels["devstack.io/managed"] != "true" {
+		cli.Close()
+		http.Error(w, "container is not DevStack-managed", 403)
+		return
+	}
+	task, err := container.Task(r.Context(), nil)
+	if err != nil {
+		cli.Close()
+		http.Error(w, err.Error(), 409)
+		return
+	}
+	spec, err := container.Spec(r.Context())
+	if err != nil || spec.Process == nil {
+		cli.Close()
+		http.Error(w, "OCI process spec unavailable", 500)
+		return
+	}
+	processSpec := *spec.Process
+	processSpec.Terminal = true
+	processSpec.Args = []string{"/bin/sh", "-i"}
+	processSpec.Cwd = "/"
+	processSpec.Env = append(processSpec.Env, "TERM=xterm-256color", "PS1=devstack$ ")
+	processSpec.ConsoleSize = &specs.Box{Width: request.Width, Height: request.Height}
+	if processSpec.ConsoleSize.Width == 0 {
+		processSpec.ConsoleSize.Width = 120
+	}
+	if processSpec.ConsoleSize.Height == 0 {
+		processSpec.ConsoleSize.Height = 28
+	}
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		cli.Close()
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	session := fmt.Sprintf("%x", bytes)
+	inR, inW := io.Pipe()
+	out := &terminalBuffer{}
+	creator := cio.NewCreator(cio.WithStreams(inR, out, out), cio.WithTerminal, cio.WithFIFODir("/run/devstack/fifo"))
+	process, err := task.Exec(r.Context(), session, &processSpec, creator)
+	if err != nil {
+		cli.Close()
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	exitC, err := process.Wait(context.Background())
+	if err != nil {
+		cli.Close()
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if err := process.Start(r.Context()); err != nil {
+		cli.Close()
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.terminalMu.Lock()
+	s.terminals[session] = &terminalState{client: cli, process: process, stdin: inW, output: out}
+	s.terminalMu.Unlock()
+	go func() {
+		status := <-exitC
+		_, _, runErr := status.Result()
+		process.IO().Wait()
+		process.IO().Close()
+		inR.Close()
+		inW.Close()
+		out.finish(runErr)
+		cli.Close()
+		s.terminalMu.Lock()
+		delete(s.terminals, session)
+		s.terminalMu.Unlock()
+	}()
+	writeJSON(w, 201, map[string]string{"session": session})
+}
+
+func (s *server) terminal(session string) (*terminalState, bool) {
+	s.terminalMu.Lock()
+	t, ok := s.terminals[session]
+	s.terminalMu.Unlock()
+	return t, ok
+}
+func (s *server) handleTerminalInput(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	var q terminalInputRequest
+	if err := decodeJSON(r, &q); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	t, ok := s.terminal(q.Session)
+	if !ok {
+		http.Error(w, "terminal closed", 404)
+		return
+	}
+	if _, err := t.stdin.Write([]byte(q.Input)); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	w.WriteHeader(204)
+}
+func (s *server) handleTerminalOutput(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	t, ok := s.terminal(r.URL.Query().Get("session"))
+	if !ok {
+		writeJSON(w, 200, map[string]any{"closed": true})
+		return
+	}
+	offset, _ := strconv.ParseInt(r.URL.Query().Get("offset"), 10, 64)
+	data, next, closed, errText := t.output.after(offset)
+	writeJSON(w, 200, map[string]any{"data": data, "nextOffset": next, "closed": closed, "error": errText})
+}
+func (s *server) handleTerminalClose(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	var q terminalInputRequest
+	if err := decodeJSON(r, &q); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	t, ok := s.terminal(q.Session)
+	if ok {
+		_ = t.stdin.Close()
+		_, _ = t.process.Delete(r.Context(), containerd.WithProcessKill)
+	}
+	w.WriteHeader(204)
 }
 
 func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {

@@ -87,6 +87,22 @@ type runtimeImagePuller interface {
 	PullRuntimeImage(ctx context.Context, reference string) (RuntimeOperationResult, error)
 }
 
+type runtimeImageLister interface {
+	ListRuntimeImages(ctx context.Context) ([]ImageInfo, error)
+}
+
+type runtimeNetworkLister interface {
+	ListRuntimeNetworks(ctx context.Context) ([]NetworkInfo, error)
+}
+
+type runtimeVolumeLister interface {
+	ListRuntimeVolumes(ctx context.Context) ([]VolumeInfo, error)
+}
+
+type runtimeVolumeRemover interface {
+	RemoveRuntimeVolume(ctx context.Context, name string) error
+}
+
 type runtimeContainerCreator interface {
 	CreateRuntimeContainer(
 		ctx context.Context,

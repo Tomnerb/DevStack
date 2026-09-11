@@ -3,6 +3,27 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# pkexec runs this script as root and may strip both $USER and PKEXEC_UID.
+# Resolve the logged-in graphical account so the helper socket works in the
+# current GUI session, without requiring a logout after installation.
+desktop_user="${SUDO_USER:-}"
+if [[ -z "$desktop_user" || "$desktop_user" == "root" ]]; then
+  desktop_user=""
+  while read -r _session _uid candidate _seat _rest; do
+    if [[ -n "$candidate" && "$candidate" != "root" ]]; then
+      desktop_user="$candidate"
+      break
+    fi
+  done < <(loginctl list-sessions --no-legend 2>/dev/null || true)
+fi
+if [[ -z "$desktop_user" && -n "${PKEXEC_UID:-}" ]]; then
+  desktop_user="$(id -nu "$PKEXEC_UID")"
+fi
+if [[ -z "$desktop_user" ]]; then
+  echo "Could not determine the desktop user for DevStack helper access."
+  exit 1
+fi
+
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "This helper is Linux-only."
   exit 1
@@ -45,20 +66,27 @@ else
 fi
 
 echo "Building devstack-netd..."
-go build -o /tmp/devstack-netd ./cmd/devstack-netd
+# The installer may be launched through pkexec, where root cannot necessarily
+# read the checkout's Git metadata. The helper does not need VCS stamping.
+helper_build="$(mktemp /tmp/devstack-netd.XXXXXX)"
+trap 'rm -f "$helper_build"' EXIT
+go build -buildvcs=false -o "$helper_build" ./cmd/devstack-netd
 
 echo "Creating devstack group..."
 sudo groupadd -f devstack
-sudo usermod -aG devstack "$USER"
+sudo usermod -aG devstack "$desktop_user"
 
 echo "Installing helper..."
 sudo install -d -m 0755 /usr/local/libexec
-sudo install -m 0755 /tmp/devstack-netd /usr/local/libexec/devstack-netd
+sudo install -m 0755 "$helper_build" /usr/local/libexec/devstack-netd
 
 echo "Installing CNI config..."
 sudo install -d -m 0755 /etc/cni/net.d
+# The hardened helper service explicitly permits this CNI state path. Ensure it
+# exists before systemd creates the helper's mount namespace.
+sudo install -d -m 0755 /var/lib/cni
 
-cat >/tmp/10-devstack.conflist <<'EOF'
+cat <<'EOF' | sudo tee /etc/cni/net.d/10-devstack.conflist >/dev/null
 {
   "cniVersion": "1.0.0",
   "name": "devstack-net",
@@ -96,14 +124,11 @@ cat >/tmp/10-devstack.conflist <<'EOF'
   ]
 }
 EOF
-
-sudo install -m 0644 \
-  /tmp/10-devstack.conflist \
-  /etc/cni/net.d/10-devstack.conflist
+	sudo chmod 0644 /etc/cni/net.d/10-devstack.conflist
 
 echo "Installing systemd unit..."
 
-cat >/tmp/devstack-netd.service <<'EOF'
+cat <<'EOF' | sudo tee /etc/systemd/system/devstack-netd.service >/dev/null
 [Unit]
 Description=DevStack containerd CNI network helper
 After=network-online.target
@@ -128,22 +153,29 @@ AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_ADMIN CAP_NET_RAW CAP_DAC_OVERRIDE CAP
 [Install]
 WantedBy=multi-user.target
 EOF
-
-sudo install -m 0644 \
-  /tmp/devstack-netd.service \
-  /etc/systemd/system/devstack-netd.service
+	sudo chmod 0644 /etc/systemd/system/devstack-netd.service
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now devstack-netd
+# `enable --now` does not replace an already-running helper after an upgrade.
+# Restart so the newly installed binary and API are immediately active.
+sudo systemctl enable devstack-netd
+sudo systemctl restart devstack-netd
 
-if command -v setfacl >/dev/null 2>&1 &&
-   [[ -S /run/devstack/netd.sock ]]; then
-  sudo setfacl -m "u:$USER:rw" /run/devstack/netd.sock || true
+if command -v setfacl >/dev/null 2>&1; then
+  # systemd can return from restart before the helper has created its socket.
+  # Wait briefly so a first-run GUI session gets access immediately.
+  for _attempt in 1 2 3 4 5; do
+    if [[ -S /run/devstack/netd.sock ]]; then
+      sudo setfacl -m "u:$desktop_user:rw" /run/devstack/netd.sock || true
+      break
+    fi
+    sleep 1
+  done
 fi
 
 echo
 echo "Networking helper installed."
-echo "Your user was added to group: devstack"
+echo "User $desktop_user was added to group: devstack"
 echo
 echo "Log out/in for permanent group access."
 echo "For this login session, setfacl was used when available."

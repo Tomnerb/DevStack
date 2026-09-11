@@ -33,9 +33,10 @@ type containerdToolState struct {
 }
 
 type containerdToolSession struct {
-	Process containerd.Process
-	Stdin   *io.PipeWriter
-	Output  *containerdToolBuffer
+	Process       containerd.Process
+	Stdin         *io.PipeWriter
+	Output        *containerdToolBuffer
+	HelperSession string
 }
 
 type containerdToolBuffer struct {
@@ -79,6 +80,21 @@ func containerdLogPath(id string) (string, error) {
 	}
 
 	return filepath.Join(dir, sanitizeContainerdID(id)+".log"), nil
+}
+
+// containerdFIFODir is deliberately user-owned. The system containerd default
+// (/run/containerd/fifo) is root-owned, while terminal client FIFOs are
+// created by the DevStack desktop process.
+func containerdFIFODir() (string, error) {
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(cacheDir, "DevStack", "containerd-fifo")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 func (r *containerdRuntime) containerTaskIO(id string) cio.Creator {
@@ -263,6 +279,19 @@ func (r *containerdRuntime) RuntimeOpenTerminal(
 	height uint,
 ) (string, error) {
 	state := r.toolState()
+	// A host-owned containerd task must always execute through the privileged
+	// helper. Falling back to the GUI-owned FIFO path leaves xterm waiting
+	// forever on systems where containerd's runtime directories are root-only.
+	if !r.rootless {
+		sessionID, err := networkHelperTerminalOpen(ctx, containerID, width, height)
+		if err != nil {
+			return "", fmt.Errorf("open DevStack terminal helper: %w", err)
+		}
+		state.Mu.Lock()
+		state.Terminals[sessionID] = &containerdToolSession{HelperSession: sessionID}
+		state.Mu.Unlock()
+		return sessionID, nil
+	}
 
 	container, err := r.client.LoadContainer(ctx, containerID)
 	if err != nil {
@@ -281,9 +310,12 @@ func (r *containerdRuntime) RuntimeOpenTerminal(
 
 	processSpec := *spec.Process
 	processSpec.Terminal = true
-	processSpec.Args = []string{"/bin/sh"}
+	// Be explicit about interactive mode and provide a prompt. Without this,
+	// BusyBox shells can accept input without producing a visible prompt, while
+	// xterm intentionally does not locally echo keystrokes.
+	processSpec.Args = []string{"/bin/sh", "-i"}
 	processSpec.Cwd = "/"
-	processSpec.Env = append(processSpec.Env, "TERM=xterm-256color")
+	processSpec.Env = append(processSpec.Env, "TERM=xterm-256color", "PS1=devstack$ ")
 
 	if width == 0 {
 		width = 120
@@ -300,10 +332,17 @@ func (r *containerdRuntime) RuntimeOpenTerminal(
 	sessionID := fmt.Sprintf("x%x", time.Now().UnixNano())
 	stdinReader, stdinWriter := io.Pipe()
 	output := &containerdToolBuffer{}
+	fifoDir, err := containerdFIFODir()
+	if err != nil {
+		_ = stdinReader.Close()
+		_ = stdinWriter.Close()
+		return "", err
+	}
 
 	creator := cio.NewCreator(
 		cio.WithStreams(stdinReader, output, output),
 		cio.WithTerminal,
+		cio.WithFIFODir(fifoDir),
 	)
 
 	process, err := task.Exec(ctx, sessionID, &processSpec, creator)
@@ -365,6 +404,9 @@ func (r *containerdRuntime) RuntimeTerminalInput(
 	if session == nil {
 		return errors.New("terminal session closed")
 	}
+	if session.HelperSession != "" {
+		return networkHelperTerminalInput(ctx, session.HelperSession, input)
+	}
 
 	_, err := session.Stdin.Write([]byte(input))
 	return err
@@ -384,6 +426,9 @@ func (r *containerdRuntime) RuntimeTerminalResize(
 
 	if session == nil {
 		return errors.New("terminal session closed")
+	}
+	if session.HelperSession != "" {
+		return nil
 	}
 
 	if width == 0 {
@@ -413,6 +458,10 @@ func (r *containerdRuntime) RuntimeTerminalOutput(
 			Closed:     true,
 		}, nil
 	}
+	if session.HelperSession != "" {
+		chunk, err := networkHelperTerminalOutput(ctx, session.HelperSession, offset)
+		return RuntimeTerminalChunk{Data: chunk.Data, NextOffset: chunk.NextOffset, Closed: chunk.Closed, Error: chunk.Error}, err
+	}
 
 	data, next, closed, errText := session.Output.after(offset)
 
@@ -437,6 +486,9 @@ func (r *containerdRuntime) RuntimeTerminalClose(
 
 	if session == nil {
 		return nil
+	}
+	if session.HelperSession != "" {
+		return networkHelperTerminalClose(ctx, session.HelperSession)
 	}
 
 	_ = session.Stdin.Close()

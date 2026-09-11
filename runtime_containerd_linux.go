@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -24,6 +26,7 @@ import (
 
 const (
 	devstackContainerdNamespace = "devstack"
+	devstackStateRoot           = "/var/lib/devstack"
 
 	labelManaged      = "devstack.io/managed"
 	labelImage        = "devstack.io/image"
@@ -34,6 +37,8 @@ const (
 
 	networkModeCNI = "cni"
 )
+
+var validContainerdVolumeID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 
 type containerdRuntime struct {
 	socket      string
@@ -195,7 +200,7 @@ func (r *containerdRuntime) Info(ctx context.Context) ContainerRuntimeInfo {
 			Images:          true,
 			PullImages:      true,
 			CreateContainer: true,
-			Volumes:         false,
+			Volumes:         true,
 			Networks:        cniReady,
 			PortPublishing:  cniReady,
 			DNS:             cniReady,
@@ -225,6 +230,111 @@ func (r *containerdRuntime) Info(ctx context.Context) ContainerRuntimeInfo {
 	)
 
 	return info
+}
+
+// ListRuntimeImages exposes the images in DevStack's dedicated containerd
+// namespace. They are not Docker images and must never be read from a Docker
+// endpoint when Native is selected.
+func (r *containerdRuntime) ListRuntimeImages(ctx context.Context) ([]ImageInfo, error) {
+	cli, err := r.clientOrError()
+	if err != nil {
+		return nil, err
+	}
+
+	items, err := cli.ListImages(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	images := make([]ImageInfo, 0, len(items))
+	for _, item := range items {
+		target := item.Target()
+		id := target.Digest.String()
+		if id == "" {
+			id = item.Name()
+		}
+		images = append(images, ImageInfo{
+			ID:         id,
+			ShortID:    shortenID(id),
+			Tags:       []string{item.Name()},
+			Size:       target.Size,
+			Created:    0,
+			Containers: 0,
+		})
+	}
+
+	sort.Slice(images, func(i, j int) bool { return images[i].Tags[0] < images[j].Tags[0] })
+	return images, nil
+}
+
+func (r *containerdRuntime) ListRuntimeNetworks(ctx context.Context) ([]NetworkInfo, error) {
+	ready, message := r.cniReady(ctx)
+	if !ready {
+		return nil, errors.New(message)
+	}
+	return []NetworkInfo{{
+		ID:         "devstack-net",
+		ShortID:    "devstack-net",
+		Name:       "devstack-net",
+		Driver:     "cni-bridge",
+		Scope:      "local",
+		Attachable: true,
+	}}, nil
+}
+
+func (r *containerdRuntime) ListRuntimeVolumes(_ context.Context) ([]VolumeInfo, error) {
+	items, err := networkHelperListRuntimeVolumes()
+	if err != nil {
+		// The Native runtime's volume store is deliberately root-owned. Never
+		// fall back to reading it from the desktop process: that produces a
+		// misleading permission error and bypasses the helper's authorization.
+		return nil, fmt.Errorf("list DevStack volumes through the privileged helper: %w", err)
+	}
+	return items, nil
+}
+
+func (r *containerdRuntime) RemoveRuntimeVolume(_ context.Context, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("volume name is required")
+	}
+	if !validContainerdVolumeID.MatchString(name) {
+		return errors.New("invalid volume name")
+	}
+
+	if err := networkHelperRemoveRuntimeVolume(context.Background(), name); err != nil {
+		return fmt.Errorf("remove DevStack volume through the privileged helper: %w", err)
+	}
+	return nil
+}
+
+func networkHelperListRuntimeVolumes() ([]VolumeInfo, error) {
+	items, err := networkHelperListVolumes(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]VolumeInfo, 0, len(items))
+	for _, item := range items {
+		result = append(result, VolumeInfo{
+			Name:       item.Name,
+			Driver:     item.Driver,
+			Scope:      item.Scope,
+			Mountpoint: item.Mountpoint,
+			CreatedAt:  item.CreatedAt,
+			Labels:     item.Labels,
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result, nil
+}
+
+func networkHelperRemoveRuntimeVolume(ctx context.Context, name string) error {
+	return networkHelperRemoveVolume(ctx, name)
 }
 
 func (r *containerdRuntime) ListContainers(ctx context.Context) ([]ContainerInfo, error) {
@@ -472,6 +582,41 @@ func (r *containerdRuntime) CreateRuntimeContainer(
 		labelManaged:     "true",
 		labelImage:       reference,
 		labelSnapshotter: r.snapshotter,
+	}
+
+	// containerd's overlay snapshot mounts are performed in the caller's mount
+	// namespace. A desktop user can safely talk to containerd but cannot mount
+	// its root-owned snapshots, so delegate container creation to the privileged
+	// helper when possible.
+	if !r.rootless && len(portMappings) == 0 {
+		if err := networkHelperCreateContainer(ctx, NetworkHelperContainerCreateRequest{
+			ID: name, Image: reference, Command: request.Command, Snapshotter: r.snapshotter, AutoStart: request.AutoStart,
+		}); err != nil {
+			// Do not fall through to the desktop process. It cannot enter
+			// containerd's root-owned overlay snapshot and would mask a helper
+			// setup error as ".../snapshots/.../fs: permission denied".
+			return ContainerInfo{}, fmt.Errorf("create container through the privileged DevStack helper: %w", err)
+		}
+		if request.AutoStart {
+			items, listErr := r.ListContainers(ctx)
+			if listErr == nil {
+				for _, item := range items {
+					if item.ID == name {
+						return item, nil
+					}
+				}
+			}
+			return ContainerInfo{ID: name, ShortID: shortenID(name), Name: name, Image: reference, State: "running"}, nil
+		}
+
+		return ContainerInfo{
+			ID:      name,
+			ShortID: shortenID(name),
+			Name:    name,
+			Image:   reference,
+			State:   "created",
+			Ports:   runtimePortInfos(portMappings),
+		}, nil
 	}
 
 	specOpts := []oci.SpecOpts{
