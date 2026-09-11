@@ -300,27 +300,30 @@ final class UnixProxyServer {
                 continue
             }
 
-            socketDevice.connect(toPort: guestPort) { result in
-                switch result {
-                case .success(let connection):
-                    Relay(
-                        localFD: clientFD,
-                        guestConnection: connection
-                    ).start()
+            DispatchQueue.main.async { [socketDevice, guestPort] in
+                socketDevice.connect(toPort: guestPort) { result in
+                    switch result {
+                    case .success(let connection):
+                        Relay(
+                            localFD: clientFD,
+                            guestConnection: connection
+                        ).start()
 
-                case .failure(let error):
-                    fputs(
-                        "devstack-vmm: vsock connect failed: \(error)\n",
-                        stderr
-                    )
-                    Darwin.close(clientFD)
+                    case .failure(let error):
+                        fputs(
+                            "devstack-vmm: vsock connect failed: \(error)\n",
+                            stderr
+                        )
+                        Darwin.close(clientFD)
+                    }
                 }
             }
         }
     }
 }
 
-final class VMRuntime: @unchecked Sendable {
+@MainActor
+final class VMRuntime {
     let args: Arguments
     let vm: VZVirtualMachine
     let delegate: VMStopDelegate
@@ -634,6 +637,7 @@ func stopDaemon(stateDir: String) throws {
     )
 }
 
+@MainActor
 func serve(args: Arguments) async throws {
     let runtime = try VMRuntime(args: args)
 

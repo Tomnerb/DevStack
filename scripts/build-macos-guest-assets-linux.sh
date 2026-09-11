@@ -55,8 +55,9 @@ curl -fL \
 tar -xzf "$WORK/$ALPINE_ARCHIVE" -C "$WORK/rootfs"
 
 echo "Downloading containerd $CONTAINERD_VERSION..."
+CONTAINERD_ARCHIVE="containerd-static-${CONTAINERD_VERSION}-linux-arm64.tar.gz"
 curl -fL \
-  "https://github.com/containerd/containerd/releases/download/v${CONTAINERD_VERSION}/containerd-${CONTAINERD_VERSION}-linux-arm64.tar.gz" \
+  "https://github.com/containerd/containerd/releases/download/v${CONTAINERD_VERSION}/${CONTAINERD_ARCHIVE}" \
   -o "$WORK/containerd.tar.gz"
 
 tar -xzf "$WORK/containerd.tar.gz" -C "$WORK"
@@ -107,7 +108,7 @@ mkdir -p \
   "$WORK/rootfs/proc" \
   "$WORK/rootfs/sys" \
   "$WORK/rootfs/dev" \
-  "$WORK/rootfs/run" \
+  "$WORK/rootfs/run/containerd" \
   "$WORK/rootfs/var/log" \
   "$WORK/rootfs/var/lib/containerd" \
   "$WORK/rootfs/etc/containerd"

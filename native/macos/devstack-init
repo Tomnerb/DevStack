@@ -10,6 +10,7 @@ mkdir -p /dev/pts /run /run/lock /sys/fs/cgroup /var/lib/containerd
 mount -t devpts devpts /dev/pts 2>/dev/null || true
 mount -t tmpfs tmpfs /run 2>/dev/null || true
 mount -t cgroup2 none /sys/fs/cgroup 2>/dev/null || true
+mkdir -p /run/containerd /run/lock
 
 hostname devstack-macos
 
@@ -58,6 +59,7 @@ done
 
 if [ ! -S /run/containerd/containerd.sock ]; then
   echo "devstack-init: containerd socket did not appear"
+  cat /var/log/containerd.log 2>/dev/null || true
   exec sh
 fi
 
@@ -67,7 +69,8 @@ cat >/etc/docker/daemon.json <<'EOF'
   "exec-root": "/var/run/docker",
   "hosts": ["unix:///run/docker.sock"],
   "iptables": false,
-  "ip6tables": false
+  "ip6tables": false,
+  "userland-proxy": false
 }
 EOF
 
@@ -81,6 +84,7 @@ done
 
 if [ ! -S /run/docker.sock ]; then
   echo "devstack-init: Docker socket did not appear"
+  cat /var/log/dockerd.log 2>/dev/null || true
   exec sh
 fi
 
