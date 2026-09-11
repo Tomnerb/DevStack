@@ -293,7 +293,7 @@ onMounted(async () => {
         </button>
       </div>
 
-      <div v-if="settings.engineBackend === 'external'" class="mt-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+      <div v-if="settings.engineBackend === 'external'" class="config-box mt-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
         <label class="text-xs text-zinc-400">Saved Docker endpoint</label>
         <div class="mt-2 flex gap-2">
           <input
@@ -308,7 +308,7 @@ onMounted(async () => {
         <p class="mt-2 text-xs text-zinc-600">This endpoint is kept as a separate engine identity; reconnect never searches for a substitute daemon.</p>
       </div>
 
-      <div v-if="settings.engineBackend === 'wsl2' && status" class="mt-5 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+      <div v-if="settings.engineBackend === 'wsl2' && status" class="config-box mt-5 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
         <label class="text-xs text-zinc-400">WSL distribution</label>
         <div class="mt-2 flex flex-wrap gap-2">
           <select class="field min-w-64" :value="settings.wslDistro" @change="chooseDistro(($event.target as HTMLSelectElement).value)">
@@ -402,7 +402,7 @@ onMounted(async () => {
         </span>
       </div>
 
-      <div class="mt-4 rounded-lg border border-zinc-800 bg-black/20 p-4">
+      <div class="runtime-card mt-4 rounded-lg border border-zinc-800 bg-black/20 p-4">
         <div class="font-medium">{{ runtimeOverview.active.displayName }}</div>
         <div class="mt-1 text-xs leading-5 text-zinc-500">
           {{ runtimeOverview.active.message }}
@@ -431,7 +431,7 @@ onMounted(async () => {
         <div
           v-for="candidate in runtimeOverview.candidates"
           :key="candidate.provider"
-          class="flex items-start justify-between gap-3 rounded-lg border border-zinc-800 p-3"
+          class="runtime-option flex items-start justify-between gap-3 rounded-lg border border-zinc-800 p-3"
         >
           <div class="min-w-0">
             <div class="flex items-center gap-2">
@@ -498,7 +498,7 @@ onMounted(async () => {
 
     <section class="panel p-6">
       <h3 class="font-semibold">Desktop Behavior</h3>
-      <div class="mt-4 divide-y divide-zinc-800 rounded-lg border border-zinc-800">
+      <div class="settings-list mt-4 divide-y divide-zinc-800 rounded-lg border border-zinc-800">
         <label class="setting-row">
           <div>
             <div class="font-medium">Auto reconnect engine</div>
@@ -534,27 +534,62 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.panel { border:1px solid rgb(255 255 255/.07); border-radius:1.1rem; background:linear-gradient(145deg,rgb(27 28 40/.9),rgb(19 20 29/.86)); box-shadow:inset 0 1px rgb(255 255 255/.035),0 14px 38px rgb(0 0 0/.12); }
+.engine-settings {
+  --settings-border:rgb(255 255 255/.075);
+  --settings-border-strong:rgb(255 255 255/.12);
+  --settings-surface:rgb(255 255 255/.026);
+  --settings-surface-raised:rgb(255 255 255/.045);
+  --settings-input:rgb(6 7 12/.48);
+  --settings-text:#ededf2;
+  --settings-muted:#a0a0ab;
+  --settings-faint:#71717e;
+}
+.panel { border:1px solid var(--settings-border); border-radius:1.1rem; background:linear-gradient(145deg,rgb(27 28 40/.9),rgb(19 20 29/.86)); box-shadow:inset 0 1px rgb(255 255 255/.035),0 14px 38px rgb(0 0 0/.12); }
+.panel h3 { color:var(--settings-text); font-size:1rem; letter-spacing:-.012em; }
 .toolbar-button,.primary-button,.danger-button { border-radius:.65rem; padding:.52rem .82rem; font-size:.75rem; transition:160ms ease; }
-.toolbar-button { border:1px solid rgb(255 255 255/.09); background:rgb(255 255 255/.04); color:#d9d9e2; }
-.toolbar-button:hover { border-color:rgb(255 255 255/.15); background:rgb(255 255 255/.075); transform:translateY(-1px); }
-.primary-button { border:1px solid rgb(159 137 255/.42); background:linear-gradient(135deg,#8067ed,#6245dc); color:white; font-weight:600; box-shadow:0 7px 18px rgb(91 62 211/.22),inset 0 1px rgb(255 255 255/.18); }
+.toolbar-button { border:1px solid var(--settings-border-strong); background:var(--settings-surface-raised); color:var(--settings-text); }
+.toolbar-button:hover { border-color:rgb(0 229 255/.3); background:rgb(10 104 255/.085); transform:translateY(-1px); }
+.primary-button { border:1px solid rgb(0 229 255/.42); background:linear-gradient(135deg,#0a68ff,#00e5ff); color:#f7f9fc; font-weight:600; box-shadow:0 7px 18px rgb(6 62 155/.26),inset 0 1px rgb(255 255 255/.18); }
 .danger-button { border:1px solid rgb(127 29 29); background:rgb(69 10 10/.35); color:rgb(248 113 113); }
 .toolbar-button:disabled,.primary-button:disabled,.danger-button:disabled { opacity:.4; cursor:not-allowed; }
-.field { border:1px solid rgb(255 255 255/.085); border-radius:.65rem; background:rgb(6 7 12/.48); padding:.55rem .75rem; font-size:.78rem; color:#ededf2; outline:none; }
-.field:focus { border-color:rgb(130 103 238/.75); box-shadow:0 0 0 3px rgb(111 82 226/.12); }
-.backend-card { position:relative; overflow:hidden; border-color:rgb(255 255 255/.07)!important; background:rgb(255 255 255/.025)!important; box-shadow:inset 0 1px rgb(255 255 255/.025); }
-.backend-card:hover { border-color:rgb(255 255 255/.14)!important; background:rgb(255 255 255/.045)!important; transform:translateY(-1px); }
-.backend-card.border-sky-700 { border-color:rgb(133 105 244/.55)!important; background:linear-gradient(135deg,rgb(111 82 226/.18),rgb(111 82 226/.05))!important; box-shadow:inset 0 1px rgb(255 255 255/.05),0 9px 26px rgb(54 37 122/.14); }
-.backend-card.border-sky-700::after { content:'✓'; position:absolute; top:.85rem; right:.9rem; display:grid; width:1.4rem; height:1.4rem; place-items:center; border-radius:999px; background:#775be5; color:white; font-size:.7rem; }
-.engine-status { border-color:rgb(255 255 255/.06)!important; background:linear-gradient(135deg,rgb(9 10 17/.5),rgb(44 35 82/.16))!important; }
-.status-cell { min-width:0; border:1px solid rgb(255 255 255/.04); border-radius:.7rem; background:rgb(255 255 255/.025); padding:.8rem; display:flex; flex-direction:column; gap:.25rem; }
-.status-cell span { color:rgb(113 113 122); }
-.status-cell strong { color:rgb(212 212 216); }
+.field { border:1px solid var(--settings-border-strong); border-radius:.65rem; background:var(--settings-input); padding:.55rem .75rem; font-size:.78rem; color:var(--settings-text); outline:none; }
+.field:focus { border-color:rgb(0 229 255/.75); box-shadow:0 0 0 3px rgb(10 104 255/.14); }
+.backend-card { position:relative; overflow:hidden; border-color:var(--settings-border)!important; background:var(--settings-surface)!important; color:var(--settings-text); box-shadow:inset 0 1px rgb(255 255 255/.025); }
+.backend-card:hover { border-color:rgb(0 229 255/.28)!important; background:var(--settings-surface-raised)!important; transform:translateY(-1px); }
+.backend-card.border-sky-700 { border-color:rgb(0 229 255/.5)!important; background:linear-gradient(135deg,rgb(10 104 255/.18),rgb(0 229 255/.05))!important; box-shadow:inset 0 1px rgb(255 255 255/.05),0 9px 26px rgb(6 62 155/.16); }
+.backend-card.border-sky-700::after { content:'✓'; position:absolute; top:.85rem; right:.9rem; display:grid; width:1.4rem; height:1.4rem; place-items:center; border-radius:999px; background:#0a68ff; color:#f7f9fc; font-size:.7rem; }
+.config-box,.runtime-card,.runtime-option,.settings-list { border-color:var(--settings-border)!important; }
+.config-box,.runtime-card { background:var(--settings-surface)!important; }
+.engine-status { border-color:var(--settings-border)!important; background:linear-gradient(135deg,rgb(9 10 17/.5),rgb(44 35 82/.16))!important; }
+.status-cell { min-width:0; border:1px solid var(--settings-border); border-radius:.7rem; background:var(--settings-surface); padding:.8rem; display:flex; flex-direction:column; gap:.25rem; }
+.status-cell span { color:var(--settings-faint); }
+.status-cell strong { color:var(--settings-muted); }
+.runtime-option { background:transparent; transition:160ms ease; }
+.runtime-option:hover { border-color:rgb(0 229 255/.2)!important; background:var(--settings-surface); }
+.settings-list { overflow:hidden; background:var(--settings-surface); }
 .setting-row { display:flex; cursor:pointer; align-items:center; justify-content:space-between; gap:1rem; padding:1rem 1.1rem; font-size:.85rem; transition:background 150ms ease; }
-.setting-row:hover { background:rgb(255 255 255/.025); }
-.setting-row input[type="checkbox"] { position:relative; width:2.15rem; height:1.25rem; flex:none; appearance:none; border:1px solid rgb(255 255 255/.12); border-radius:999px; background:rgb(255 255 255/.08); transition:160ms ease; }
+.setting-row + .setting-row { border-color:var(--settings-border)!important; }
+.setting-row:hover { background:var(--settings-surface-raised); }
+.setting-row input[type="checkbox"] { position:relative; width:2.15rem; height:1.25rem; flex:none; appearance:none; border:1px solid var(--settings-border-strong); border-radius:999px; background:rgb(255 255 255/.08); transition:160ms ease; }
 .setting-row input[type="checkbox"]::after { content:''; position:absolute; top:2px; left:2px; width:.9rem; height:.9rem; border-radius:999px; background:#9a9aa5; box-shadow:0 2px 5px rgb(0 0 0/.3); transition:160ms ease; }
-.setting-row input[type="checkbox"]:checked { border-color:rgb(151 127 250/.6); background:linear-gradient(135deg,#8067ed,#6245dc); }
+.setting-row input[type="checkbox"]:checked { border-color:rgb(0 229 255/.55); background:linear-gradient(135deg,#0a68ff,#00e5ff); }
 .setting-row input[type="checkbox"]:checked::after { left:calc(100% - 1.02rem); background:white; }
+
+:global(html[data-theme="light"] .engine-settings) {
+  --settings-border:rgb(38 39 52/.09);
+  --settings-border-strong:rgb(38 39 52/.14);
+  --settings-surface:rgb(52 49 68/.034);
+  --settings-surface-raised:rgb(255 255 255/.76);
+  --settings-input:rgb(255 255 255/.82);
+  --settings-text:#292a34;
+  --settings-muted:#555661;
+  --settings-faint:#777884;
+}
+:global(html[data-theme="light"] .engine-settings .panel) { background:linear-gradient(145deg,rgb(255 255 255/.97),rgb(246 247 251/.91)); box-shadow:inset 0 1px white,0 14px 34px rgb(64 61 90/.08); }
+:global(html[data-theme="light"] .engine-settings .backend-card) { box-shadow:inset 0 1px rgb(255 255 255/.75); }
+:global(html[data-theme="light"] .engine-settings .backend-card.border-sky-700) { border-color:rgb(10 104 255/.34)!important; background:linear-gradient(135deg,rgb(10 104 255/.13),rgb(0 229 255/.035))!important; box-shadow:inset 0 1px white,0 9px 26px rgb(6 62 155/.09); }
+:global(html[data-theme="light"] .engine-settings .engine-status) { background:linear-gradient(135deg,rgb(246 246 250/.9),rgb(10 104 255/.07))!important; }
+:global(html[data-theme="light"] .engine-settings .setting-row input[type="checkbox"]) { background:rgb(39 40 52/.1); }
+:global(html[data-theme="light"] .engine-settings .setting-row input[type="checkbox"]:checked) { border-color:rgb(10 104 255/.45); background:linear-gradient(135deg,#0a68ff,#00e5ff); }
+:global(html[data-theme="light"] .engine-settings .danger-button) { border-color:rgb(220 92 92/.3); background:rgb(239 68 68/.07); color:#b83232; }
 </style>
