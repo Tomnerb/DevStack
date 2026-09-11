@@ -35,6 +35,8 @@ const emit = defineEmits<{
 
 const terminalHost = ref<HTMLElement | null>(null)
 const status = ref<'connecting' | 'connected' | 'closed'>('connecting')
+const commandDraft = ref('')
+const commandInput = ref<HTMLTextAreaElement | null>(null)
 
 let terminal: Terminal | undefined
 let fitAddon: FitAddon | undefined
@@ -87,7 +89,9 @@ async function start() {
   unsubscribeEvent = Events.On(
     'devstack:terminal-output',
     (payload: any) => {
-      const data = payload as StreamOutputEvent
+      // Wails v3 delivers a WailsEvent wrapper. Its custom event payload is
+      // under `.data`, not on the wrapper itself.
+      const data = (payload?.data ?? payload) as StreamOutputEvent
 
       const matchesSession = sessionID
         ? data?.streamId === sessionID
@@ -175,6 +179,37 @@ function scheduleResize(cols: number, rows: number) {
   }, 80)
 }
 
+function focusTerminal() {
+  commandInput.value?.focus()
+}
+
+function clearTerminal() {
+  terminal?.clear()
+  commandInput.value?.focus()
+}
+
+async function runDraftCommand() {
+  const command = commandDraft.value
+  if (!sessionID || status.value !== 'connected' || command.trim() === '') {
+    return
+  }
+
+  commandDraft.value = ''
+  try {
+    await Call.ByName(
+      'main.DockerService.SendTerminalInput',
+      sessionID,
+      `${command}\n`,
+    )
+  } catch (err) {
+    terminal?.writeln(
+      `\r\n\x1b[31m[DevStack] ${err instanceof Error ? err.message : String(err)}\x1b[0m`,
+    )
+  } finally {
+    commandInput.value?.focus()
+  }
+}
+
 async function closeSession() {
   const currentSession = sessionID
   sessionID = ''
@@ -228,11 +263,12 @@ onBeforeUnmount(() => {
       class="terminal-shell flex h-[88vh] w-full max-w-7xl flex-col overflow-hidden bg-black"
     >
       <header
-        class="terminal-header flex items-center justify-between px-4 py-3"
+        class="terminal-header flex items-center justify-between gap-4 px-4 py-3"
       >
-        <div>
+        <div class="min-w-0">
           <div class="flex items-center gap-2">
-            <strong class="font-mono text-sm text-zinc-200">
+            <span class="terminal-mark">›_</span>
+            <strong class="truncate font-mono text-sm text-zinc-100">
               {{ container.name || container.shortId }}
             </strong>
 
@@ -250,31 +286,80 @@ onBeforeUnmount(() => {
             </span>
           </div>
 
-          <div class="mt-0.5 text-[11px] text-zinc-600">
-            Full Docker TTY · /bin/sh
+          <div class="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
+            <span>Native container shell</span>
+            <span class="text-zinc-700">•</span>
+            <code>/bin/sh</code>
+            <span v-if="status === 'connected'" class="terminal-live">live</span>
           </div>
         </div>
 
-        <button
-          class="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
-          @click="closeSession"
-        >
-          Close
-        </button>
+        <div class="flex shrink-0 items-center gap-2">
+          <button class="terminal-action" title="Focus terminal" @click="focusTerminal">
+            Focus
+          </button>
+          <button class="terminal-action" title="Clear terminal output" @click="clearTerminal">
+            Clear
+          </button>
+          <button class="terminal-close" @click="closeSession">Close</button>
+        </div>
       </header>
 
-      <div
-        ref="terminalHost"
-        class="min-h-0 flex-1 overflow-hidden p-2"
-      />
+      <div class="terminal-canvas min-h-0 flex-1 overflow-hidden p-3" @click="focusTerminal">
+        <div ref="terminalHost" class="h-full" />
+      </div>
+
+      <div class="terminal-composer px-4 py-3">
+        <span class="composer-prompt" aria-hidden="true">›</span>
+        <textarea
+          ref="commandInput"
+          v-model="commandDraft"
+          class="composer-input"
+          rows="1"
+          :disabled="status !== 'connected'"
+          placeholder="Write a command…"
+          spellcheck="false"
+          @keydown.enter.exact.prevent="runDraftCommand"
+        />
+        <button
+          class="composer-run"
+          :disabled="status !== 'connected' || commandDraft.trim() === ''"
+          @click="runDraftCommand"
+        >
+          Run <kbd>↵</kbd>
+        </button>
+      </div>
+
+      <footer class="terminal-footer flex items-center justify-between px-4 py-2 text-[10px] text-zinc-500">
+        <span>Editable command bar · output stays in this session only</span>
+        <span class="font-mono text-zinc-600">Shift + Enter for a new line</span>
+      </footer>
     </section>
   </div>
 </template>
 
 <style scoped>
 .terminal-backdrop { background:rgb(3 4 8/.84); backdrop-filter:blur(14px); }
-.terminal-shell { border:1px solid rgb(255 255 255/.11); border-radius:1.15rem; box-shadow:0 30px 90px rgb(0 0 0/.6),inset 0 1px rgb(255 255 255/.05); }
-.terminal-header { border-bottom:1px solid rgb(255 255 255/.065); background:linear-gradient(90deg,#151621,#11121b); }
+.terminal-shell { border:1px solid rgb(255 255 255/.12); border-radius:1rem; box-shadow:0 30px 90px rgb(0 0 0/.6),inset 0 1px rgb(255 255 255/.05); }
+.terminal-header { border-bottom:1px solid rgb(255 255 255/.07); background:linear-gradient(90deg,#121722,#0c1018); }
+.terminal-mark { display:grid; width:1.65rem; height:1.65rem; place-items:center; border-radius:.42rem; background:rgb(34 211 238/.12); color:#67e8f9; font:700 .77rem/1 ui-monospace,monospace; }
+.terminal-live { border:1px solid rgb(74 222 128/.2); border-radius:999px; padding:.08rem .36rem; color:#4ade80; }
+.terminal-action,.terminal-close { border-radius:.4rem; padding:.36rem .62rem; font-size:.72rem; transition:background .15s,border-color .15s; }
+.terminal-action { border:1px solid rgb(255 255 255/.1); background:#161b25; color:#a1a1aa; }
+.terminal-action:hover { background:#232a38; color:#e4e4e7; }
+.terminal-close { border:1px solid rgb(248 113 113/.23); background:rgb(127 29 29/.22); color:#fca5a5; }
+.terminal-close:hover { background:rgb(127 29 29/.42); }
+.terminal-canvas { background:radial-gradient(circle at 50% -30%,rgb(34 211 238/.05),transparent 42%),#05070a; }
+.terminal-composer { display:flex; align-items:center; gap:.7rem; border-top:1px solid rgb(255 255 255/.07); background:#10151e; }
+.composer-prompt { color:#67e8f9; font:700 1.2rem/1 ui-monospace,monospace; }
+.composer-input { min-width:0; flex:1; resize:none; border:1px solid transparent; border-radius:.5rem; outline:none; background:#090d13; padding:.55rem .7rem; color:#e4e4e7; font:.8rem/1.35 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.composer-input:focus { border-color:rgb(34 211 238/.5); box-shadow:0 0 0 3px rgb(34 211 238/.09); }
+.composer-input:disabled { cursor:not-allowed; opacity:.5; }
+.composer-run { border:1px solid rgb(34 211 238/.28); border-radius:.45rem; background:rgb(8 145 178/.2); padding:.48rem .65rem; color:#a5f3fc; font-size:.72rem; }
+.composer-run:hover:not(:disabled) { background:rgb(8 145 178/.38); }
+.composer-run:disabled { cursor:not-allowed; opacity:.4; }
+.composer-run kbd { margin-left:.22rem; color:#67e8f9; font-family:ui-monospace,monospace; }
+.terminal-footer { border-top:1px solid rgb(255 255 255/.055); background:#0b0f15; }
 :deep(.xterm) {
   height: 100%;
 }
