@@ -11,11 +11,14 @@ import { Call, Events } from '@wailsio/runtime'
 import XtermTerminal from './components/XtermTerminal.vue'
 import ContainerDetailsModal from './components/ContainerDetailsModal.vue'
 import EngineSettingsPanel from './components/EngineSettingsPanel.vue'
+import brandSymbol from '../../assets/devstack_icon.png'
+import brandAppIcon from '../../assets/devstack_icon2.png'
 
 type TabName = 'overview' | 'containers' | 'images' | 'volumes' | 'networks' | 'storage' | 'engine'
 type ContainerAction = 'start' | 'stop' | 'restart' | 'delete'
 type ProjectAction = 'start' | 'stop' | 'restart'
 type ComposeAction = 'up' | 'down' | 'build' | 'rebuild'
+type ColorTheme = 'light' | 'dark'
 
 interface DockerStatus {
   connected: boolean
@@ -170,6 +173,15 @@ interface RuntimePortMapping {
 }
 
 const activeTab = ref<TabName>('overview')
+const systemTheme = window.matchMedia('(prefers-color-scheme: dark)')
+const savedTheme = window.localStorage.getItem('devstack-color-theme')
+const colorTheme = ref<ColorTheme>(
+  savedTheme === 'light' || savedTheme === 'dark'
+    ? savedTheme
+    : systemTheme.matches ? 'dark' : 'light',
+)
+const savedSidebarMode = window.localStorage.getItem('devstack-sidebar-mode')
+const sidebarCompact = ref(savedSidebarMode !== 'expanded')
 const dockerStatus = ref<DockerStatus | null>(null)
 const platformInfo = ref<PlatformInfo | null>(null)
 const runtimeOverview = ref<RuntimeOverview | null>(null)
@@ -229,6 +241,43 @@ let unsubscribeDockerEvents: (() => void) | undefined
 let unsubscribeFileDrops: (() => void) | undefined
 let unsubscribeTrayRefresh: (() => void) | undefined
 let dockerRefreshTimer: ReturnType<typeof setTimeout> | undefined
+const scrollFadeTimers = new Map<Element, ReturnType<typeof setTimeout>>()
+
+function applyColorTheme() {
+  document.documentElement.dataset.theme = colorTheme.value
+  document.documentElement.style.colorScheme = colorTheme.value
+}
+
+function toggleColorTheme() {
+  colorTheme.value = colorTheme.value === 'dark' ? 'light' : 'dark'
+  window.localStorage.setItem('devstack-color-theme', colorTheme.value)
+  applyColorTheme()
+}
+
+function toggleSidebar() {
+  sidebarCompact.value = !sidebarCompact.value
+  window.localStorage.setItem(
+    'devstack-sidebar-mode',
+    sidebarCompact.value ? 'compact' : 'expanded',
+  )
+}
+
+function handleScroll(event: Event) {
+  const target = event.target instanceof Element
+    ? event.target
+    : document.scrollingElement ?? document.documentElement
+
+  target.classList.add('is-scrolling')
+  const existing = scrollFadeTimers.get(target)
+  if (existing) clearTimeout(existing)
+
+  scrollFadeTimers.set(target, setTimeout(() => {
+    target.classList.remove('is-scrolling')
+    scrollFadeTimers.delete(target)
+  }, 850))
+}
+
+applyColorTheme()
 
 const runningCount = computed(
   () => containers.value.filter(
@@ -674,6 +723,11 @@ function formatCPU(value?: number): string {
   }
 
   return value > 0 && value < 0.1 ? '<0.1%' : `${value.toFixed(1)}%`
+}
+
+function activeResourcePercent(item: DiskUsageItem): number {
+  if (!item.totalCount) return 0
+  return Math.min(100, Math.max(0, (item.active / item.totalCount) * 100))
 }
 
 function formatDate(timestamp: number): string {
@@ -1344,6 +1398,7 @@ watch(activeTab, () => {
 })
 
 onMounted(async () => {
+  document.addEventListener('scroll', handleScroll, true)
   setupLogListener()
   setupPlatformListeners()
 
@@ -1369,6 +1424,12 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('scroll', handleScroll, true)
+  for (const [target, timer] of scrollFadeTimers) {
+    clearTimeout(timer)
+    target.classList.remove('is-scrolling')
+  }
+  scrollFadeTimers.clear()
   stopStatsPolling()
   unsubscribeLogs?.()
   unsubscribeDockerEvents?.()
@@ -1384,18 +1445,53 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-shell flex min-h-screen text-zinc-100">
+  <div
+    class="app-shell flex min-h-screen text-zinc-100"
+    :class="{ 'sidebar-compact': sidebarCompact }"
+  >
     <div class="ambient ambient-one" />
     <div class="ambient ambient-two" />
 
-    <aside class="sidebar fixed inset-y-0 left-0 z-10 w-64">
+    <header class="window-titlebar fixed inset-x-0 top-0 z-30 h-14">
+      <div class="window-titlebar-glow" aria-hidden="true" />
+      <div class="window-title">
+        {{ activeTab === 'overview' ? 'Smart Check' : tabs.find(tab => tab.key === activeTab)?.label }}
+      </div>
+      <div class="window-title-actions">
+        <button
+          class="titlebar-theme-toggle"
+          type="button"
+          :title="`Switch to ${colorTheme === 'dark' ? 'light' : 'dark'} mode`"
+          :aria-label="`Switch to ${colorTheme === 'dark' ? 'light' : 'dark'} mode`"
+          @click="toggleColorTheme"
+        >
+          <svg v-if="colorTheme === 'dark'" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="3.5" />
+            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20.4 15.3A8.5 8.5 0 0 1 8.7 3.6 8.5 8.5 0 1 0 20.4 15.3Z" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <aside class="sidebar fixed bottom-0 left-0 top-14 z-10">
+      <button
+        class="sidebar-toggle"
+        type="button"
+        :title="sidebarCompact ? 'Expand sidebar' : 'Compact sidebar'"
+        :aria-label="sidebarCompact ? 'Expand sidebar' : 'Compact sidebar'"
+        @click="toggleSidebar"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path :d="sidebarCompact ? 'm9 6 6 6-6 6' : 'm15 6-6 6 6 6'" />
+        </svg>
+      </button>
+
       <div class="brand px-5 pb-5 pt-6">
-        <div class="brand-mark" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-        </div>
-        <div>
+        <img class="brand-mark" :src="brandAppIcon" alt="" aria-hidden="true" />
+        <div class="brand-copy">
           <h1 class="text-lg font-semibold tracking-tight">DevStack</h1>
           <p class="mt-0.5 text-[11px] text-zinc-500">Local container studio</p>
         </div>
@@ -1409,6 +1505,8 @@ onBeforeUnmount(() => {
           <button
             class="nav-item mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition"
             :class="activeTab === tab.key ? 'nav-item-active text-white' : 'text-zinc-500 hover:text-zinc-200'"
+            :data-label="tab.label"
+            :aria-label="tab.label"
             @click="activeTab = tab.key"
           >
             <span class="nav-icon" :class="`icon-${tab.icon}`" aria-hidden="true">
@@ -1420,7 +1518,7 @@ onBeforeUnmount(() => {
               <svg v-else-if="tab.icon === 'storage'" viewBox="0 0 24 24"><path d="M4 5.5h16v13H4z" /><path d="M8 15h.01M12 15h4" /></svg>
               <svg v-else viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6" /></svg>
             </span>
-            <span class="flex-1">{{ tab.label }}</span>
+            <span class="nav-label flex-1">{{ tab.label }}</span>
             <span v-if="['containers', 'images', 'volumes', 'networks'].includes(tab.key)" class="nav-count rounded-full px-2 py-0.5 text-[10px]">{{ tab.count }}</span>
           </button>
         </template>
@@ -1429,7 +1527,7 @@ onBeforeUnmount(() => {
       <div v-if="dockerStatus || platformInfo" class="sidebar-status absolute bottom-4 left-3 right-3 rounded-2xl p-3.5">
         <div v-if="dockerStatus" class="flex items-center gap-3 text-xs">
           <span class="status-orb" :class="dockerStatus.connected ? 'is-online' : 'is-offline'"><i /></span>
-          <div class="min-w-0">
+          <div class="sidebar-status-copy min-w-0">
             <div class="font-medium text-zinc-200">
               {{ dockerStatus.connected ? 'Runtime ready' : 'Runtime offline' }}
             </div>
@@ -1441,7 +1539,7 @@ onBeforeUnmount(() => {
 
         <div
           v-if="platformInfo"
-          class="mt-3 truncate border-t border-white/[0.05] pt-2.5 text-[10px] text-zinc-600"
+          class="sidebar-platform mt-3 truncate border-t border-white/[0.05] pt-2.5 text-[10px] text-zinc-600"
           :title="`${platformInfo.dockerContext || ''} ${platformInfo.dockerHost || ''}`"
         >
           {{ platformInfo.os }}/{{ platformInfo.arch }}
@@ -1452,15 +1550,10 @@ onBeforeUnmount(() => {
       </div>
     </aside>
 
-    <div class="ml-64 min-w-0 flex-1">
-      <header
-        class="topbar sticky top-0 z-[5] flex min-h-20 items-center justify-between gap-4 px-8 py-4 backdrop-blur-xl"
-      >
-        <div>
-          <p class="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-indigo-400">DevStack</p>
-          <h2 class="text-2xl font-semibold tracking-tight">{{ activeTab === 'overview' ? 'Smart Check' : tabs.find(tab => tab.key === activeTab)?.label }}</h2>
-
-          <p v-if="activeTab === 'containers'" class="text-xs text-zinc-500">
+    <div class="app-content min-w-0 flex-1 pt-14">
+      <main :key="activeTab" class="content-canvas relative z-[1] p-8 pt-6">
+        <div v-if="!['overview', 'engine'].includes(activeTab)" class="content-tools">
+          <p v-if="activeTab === 'containers'" class="content-context text-xs text-zinc-500">
             {{ containers.length }} total ·
             <span class="text-emerald-500">{{ runningCount }} running</span>
             · {{ activeRuntime?.displayName || 'runtime' }}
@@ -1468,21 +1561,8 @@ onBeforeUnmount(() => {
               · {{ composeProjectCount }} Compose project{{ composeProjectCount === 1 ? '' : 's' }}
             </template>
           </p>
-
-          <p v-else-if="activeTab === 'overview'" class="text-xs text-zinc-500">
-            A quick health check for your entire local container workspace
-          </p>
-
-          <p v-else-if="activeTab === 'engine'" class="text-xs text-zinc-500">
-            Select and manage the container runtime backend
-          </p>
-
-          <p v-else class="text-xs text-zinc-500">
-            Manage local Docker {{ activeTab }}
-          </p>
-        </div>
-
-        <div class="flex items-center gap-4">
+          <span v-else />
+          <div class="flex items-center gap-3">
           <div
             v-if="activeTab === 'containers' && runtimeConnected && runtimeCapabilities.stats"
             class="hidden items-center gap-4 text-xs text-zinc-500 lg:flex"
@@ -1498,43 +1578,41 @@ onBeforeUnmount(() => {
             </span>
           </div>
 
-          <div v-if="!['engine', 'overview'].includes(activeTab)" class="search-wrap hidden md:block">
+          <div v-if="activeTab !== 'storage'" class="search-wrap hidden md:block">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
             <input v-model="searchQuery" class="field w-64" :placeholder="`Search ${activeTab}…`" />
           </div>
 
           <button
-            v-if="activeTab !== 'overview'"
             class="toolbar-button"
             :disabled="loading || !!resourceBusy || !!busyId || !!busyProject || !!composeBusy || importBusy"
             @click="loadCurrentTab"
           >
             {{ loading ? 'Loading…' : 'Refresh' }}
           </button>
+          </div>
         </div>
-      </header>
 
-      <main :key="activeTab" class="content-canvas relative z-[1] p-8 pt-6">
         <div
           v-if="error"
-          class="mb-4 flex items-start justify-between gap-4 rounded-lg border border-red-900/80 bg-red-950/40 p-4 text-sm text-red-300"
+          class="app-notice app-notice-error mb-4 flex items-start justify-between gap-4 rounded-lg border p-4 text-sm"
         >
           <span class="whitespace-pre-wrap break-all">{{ error }}</span>
-          <button class="shrink-0" @click="error = ''">Close</button>
+          <button class="notice-close shrink-0" @click="error = ''">Close</button>
         </div>
 
         <div
           v-if="success"
-          class="mb-4 rounded-lg border border-emerald-900/80 bg-emerald-950/30 p-4 text-sm text-emerald-300"
+          class="app-notice app-notice-success mb-4 rounded-lg border p-4 text-sm"
         >
           <div class="flex items-center justify-between gap-4">
             <span>{{ success }}</span>
-            <button @click="success = ''">Close</button>
+            <button class="notice-close" @click="success = ''">Close</button>
           </div>
 
           <pre
             v-if="commandOutput"
-            class="mt-3 max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-black/40 p-3 font-mono text-xs leading-5 text-zinc-400"
+            class="notice-output mt-3 max-h-52 overflow-auto whitespace-pre-wrap rounded-md p-3 font-mono text-xs leading-5"
           >{{ commandOutput }}</pre>
         </div>
 
@@ -1559,13 +1637,13 @@ onBeforeUnmount(() => {
             <svg class="energy-streams" viewBox="0 0 500 280" aria-hidden="true">
               <defs>
                 <linearGradient id="stream-a" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0" stop-color="#9a82ff" stop-opacity="0" />
-                  <stop offset=".48" stop-color="#9a82ff" stop-opacity=".8" />
+                  <stop offset="0" stop-color="#00e5ff" stop-opacity="0" />
+                  <stop offset=".48" stop-color="#00e5ff" stop-opacity=".8" />
                   <stop offset="1" stop-color="#5ce1ef" stop-opacity="0" />
                 </linearGradient>
                 <linearGradient id="stream-b" x1="1" y1="0" x2="0" y2="1">
                   <stop offset="0" stop-color="#f374bd" stop-opacity="0" />
-                  <stop offset=".52" stop-color="#af80ff" stop-opacity=".65" />
+                  <stop offset=".52" stop-color="#29f3ff" stop-opacity=".65" />
                   <stop offset="1" stop-color="#6fdded" stop-opacity="0" />
                 </linearGradient>
               </defs>
@@ -1580,7 +1658,7 @@ onBeforeUnmount(() => {
             <div class="care-core">
               <div class="core-glass glass-back" />
               <div class="core-glass glass-front" />
-              <div class="core-mark"><span /><span /><span /></div>
+              <img class="core-mark" :src="brandSymbol" alt="" aria-hidden="true" />
             </div>
             <div class="orbit-chip chip-containers"><b>{{ containers.length }}</b><span>Containers</span></div>
             <div class="orbit-chip chip-projects"><b>{{ composeProjectCount }}</b><span>Projects</span></div>
@@ -1603,7 +1681,7 @@ onBeforeUnmount(() => {
           class="offline-state rounded-xl p-10 text-center"
         >
           <div class="offline-icon mx-auto mb-4">
-            <span />
+            <img :src="brandSymbol" alt="" aria-hidden="true" />
           </div>
           <div class="text-lg font-medium">Container runtime isn't available</div>
           <div class="mt-2 break-all text-sm text-zinc-500">
@@ -2115,40 +2193,78 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- STORAGE -->
-        <div v-else-if="activeTab === 'storage'" class="space-y-5">
-          <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <div
+        <div v-else-if="activeTab === 'storage'" class="storage-page space-y-5">
+          <section class="storage-hero">
+            <div class="storage-hero-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M4 5.5h16v13H4z" /><path d="M8 15h.01M12 15h4" /></svg>
+            </div>
+            <div>
+              <span class="storage-eyebrow">WORKSPACE STORAGE</span>
+              <h3>Keep local container data under control.</h3>
+              <p>Review Docker disk usage and remove only resources you no longer need.</p>
+            </div>
+            <span class="safe-badge"><i />Conservative cleanup</span>
+          </section>
+
+          <div v-if="diskUsage.length" class="storage-grid">
+            <article
               v-for="item in diskUsage"
               :key="item.type"
-              class="panel p-4"
+              class="storage-card"
             >
-              <div class="text-xs uppercase tracking-wide text-zinc-500">
-                {{ item.type }}
+              <div class="storage-card-head">
+                <span class="storage-type-icon" aria-hidden="true">{{ item.type.slice(0, 1).toUpperCase() }}</span>
+                <div>
+                  <div class="storage-type">{{ item.type }}</div>
+                  <div class="storage-count">{{ item.totalCount }} total</div>
+                </div>
               </div>
-              <div class="mt-2 text-2xl font-semibold">{{ item.size }}</div>
-              <div class="mt-2 text-xs text-zinc-500">
-                {{ item.active }}/{{ item.totalCount }} active ·
-                {{ item.reclaimable }} reclaimable
+              <div class="storage-size">{{ item.size }}</div>
+              <div class="storage-track" :title="`${item.active} of ${item.totalCount} active`">
+                <i :style="{ width: `${activeResourcePercent(item)}%` }" />
               </div>
-            </div>
+              <div class="storage-meta">
+                <span><b>{{ item.active }}</b> active</span>
+                <span><b>{{ item.reclaimable }}</b> reclaimable</span>
+              </div>
+            </article>
           </div>
 
-          <div class="panel p-5">
-            <div>
-              <h3 class="font-semibold">Cleanup</h3>
-              <p class="mt-1 text-sm text-zinc-500">
+          <div v-else class="storage-empty">
+            <div class="empty-stack"><span /><span /><span /></div>
+            <h3>No storage data available</h3>
+            <p>Refresh after connecting to a Docker runtime to analyze local disk usage.</p>
+          </div>
+
+          <section class="cleanup-panel">
+            <div class="cleanup-heading">
+              <div>
+                <span class="storage-eyebrow">CLEANUP TOOLS</span>
+                <h3>Choose what to remove</h3>
+              </div>
+              <p>
                 Conservative prune actions. Named volumes and unused tagged images are not deleted automatically.
               </p>
             </div>
 
-            <div class="mt-4 flex flex-wrap gap-2">
-              <button class="danger-button" @click="prune('system')">Prune System</button>
-              <button class="toolbar-button" @click="prune('containers')">Stopped Containers</button>
-              <button class="toolbar-button" @click="prune('images')">Dangling Images</button>
-              <button class="toolbar-button" @click="prune('networks')">Unused Networks</button>
-              <button class="toolbar-button" @click="prune('volumes')">Anonymous Volumes</button>
+            <div class="cleanup-grid">
+              <button class="cleanup-action cleanup-danger" :disabled="!!resourceBusy" @click="prune('system')">
+                <span class="cleanup-icon">✦</span><span><b>{{ resourceBusy === 'prune:system' ? 'Cleaning…' : 'Prune System' }}</b><small>Containers, networks, dangling images, and build cache</small></span>
+              </button>
+              <button class="cleanup-action" :disabled="!!resourceBusy" @click="prune('containers')">
+                <span class="cleanup-icon">□</span><span><b>{{ resourceBusy === 'prune:containers' ? 'Cleaning…' : 'Stopped Containers' }}</b><small>Remove containers that are no longer running</small></span>
+              </button>
+              <button class="cleanup-action" :disabled="!!resourceBusy" @click="prune('images')">
+                <span class="cleanup-icon">◇</span><span><b>{{ resourceBusy === 'prune:images' ? 'Cleaning…' : 'Dangling Images' }}</b><small>Remove untagged image layers only</small></span>
+              </button>
+              <button class="cleanup-action" :disabled="!!resourceBusy" @click="prune('networks')">
+                <span class="cleanup-icon">⌁</span><span><b>{{ resourceBusy === 'prune:networks' ? 'Cleaning…' : 'Unused Networks' }}</b><small>Remove networks with no attached containers</small></span>
+              </button>
+              <button class="cleanup-action" :disabled="!!resourceBusy" @click="prune('volumes')">
+                <span class="cleanup-icon">▱</span><span><b>{{ resourceBusy === 'prune:volumes' ? 'Cleaning…' : 'Anonymous Volumes' }}</b><small>Remove unused anonymous volumes</small></span>
+              </button>
             </div>
-          </div>
+          </section>
         </div>
 
         <EngineSettingsPanel
@@ -2219,9 +2335,25 @@ onBeforeUnmount(() => {
   position: relative;
   overflow-x: hidden;
   background:
-    radial-gradient(circle at 82% 8%, rgb(83 64 173 / 0.12), transparent 28rem),
-    linear-gradient(145deg, #0d0e17 0%, #0a0b11 58%, #10111a 100%);
+    radial-gradient(circle at 82% 8%, rgb(0 229 255 / .12), transparent 28rem),
+    linear-gradient(145deg, #020817 0%, #03132e 58%, #020817 100%);
 }
+
+.window-titlebar {
+  background:
+    radial-gradient(circle at 78% -120%, rgb(41 243 255 / .42), transparent 22rem),
+    linear-gradient(100deg, #03132e 0%, #063e9b 48%, #0a68ff 100%);
+  box-shadow: inset 0 1px rgb(255 255 255 / .1);
+  --wails-draggable: drag;
+  user-select: none;
+}
+.window-titlebar::after { content:''; position:absolute; top:100%; right:0; left:0; height:2.5rem; background:linear-gradient(to bottom,rgb(10 104 255/.1),transparent); pointer-events:none; }
+.window-titlebar-glow { position:absolute; inset:-2rem 10% auto; height:5rem; background:linear-gradient(90deg,transparent,rgb(0 229 255/.2),rgb(41 243 255/.14),transparent); filter:blur(18px); pointer-events:none; }
+.window-title { position:absolute; inset:0; display:grid; place-items:center; color:rgb(255 255 255/.8); font-size:.78rem; font-weight:600; letter-spacing:-.01em; text-shadow:0 1px 8px rgb(16 3 38/.42); pointer-events:none; }
+.window-title-actions { position:absolute; top:0; right:.85rem; bottom:0; display:flex; align-items:center; --wails-draggable:no-drag; }
+.titlebar-theme-toggle { display:grid; width:2rem; height:2rem; place-items:center; border:1px solid rgb(255 255 255/.12); border-radius:.62rem; background:rgb(255 255 255/.08); color:rgb(255 255 255/.72); transition:160ms ease; --wails-draggable:no-drag; }
+.titlebar-theme-toggle:hover { border-color:rgb(255 255 255/.22); background:rgb(255 255 255/.14); color:white; transform:translateY(-1px); }
+.titlebar-theme-toggle svg { width:.9rem; height:.9rem; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 
 .ambient {
   position: fixed;
@@ -2234,57 +2366,113 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-.ambient-one { top: -18rem; right: -8rem; background: #8b5cf6; }
-.ambient-two { bottom: -24rem; left: 30%; background: #0ea5e9; }
+.ambient-one { top: -18rem; right: -8rem; background: #0a68ff; }
+.ambient-two { bottom: -24rem; left: 30%; background: #00e5ff; }
 
 .sidebar {
+  width: 16rem;
   border-right: 1px solid rgb(255 255 255 / 0.055);
   background: rgb(12 13 21 / 0.86);
   box-shadow: 18px 0 50px rgb(0 0 0 / 0.12);
   backdrop-filter: blur(28px) saturate(135%);
+  transition: width 220ms cubic-bezier(.2,.8,.2,1), box-shadow 220ms ease;
 }
 
-.brand { display: flex; align-items: center; gap: .8rem; }
+.app-content { margin-left:16rem; transition:margin-left 220ms cubic-bezier(.2,.8,.2,1); }
+
+.sidebar-toggle {
+  position:absolute;
+  z-index:3;
+  top:1.15rem;
+  right:-.72rem;
+  display:grid;
+  width:1.5rem;
+  height:1.5rem;
+  place-items:center;
+  border:1px solid rgb(255 255 255/.1);
+  border-radius:999px;
+  background:rgb(3 19 46/.92);
+  color:rgb(247 249 252/.62);
+  box-shadow:0 5px 14px rgb(0 0 0/.22);
+  opacity:.72;
+  transition:160ms ease;
+}
+.sidebar-toggle:hover { border-color:rgb(0 229 255/.3); color:#29f3ff; opacity:1; transform:scale(1.06); }
+.sidebar-toggle svg { width:.78rem; height:.78rem; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+
+.brand { display: flex; min-width:0; align-items: center; gap: .8rem; transition:padding 220ms ease; }
+.brand-copy { min-width:0; opacity:1; transition:opacity 120ms ease; white-space:nowrap; }
 
 .brand-mark {
-  position: relative;
-  display: grid;
-  width: 2.35rem;
-  height: 2.35rem;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid rgb(255 255 255 / 0.16);
-  border-radius: .78rem;
-  background: linear-gradient(145deg, #7658f5, #4c32c3);
-  box-shadow: 0 8px 24px rgb(99 68 232 / .3), inset 0 1px rgb(255 255 255 / .28);
+  width: 2.65rem;
+  height: 2.65rem;
+  flex: none;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 14px rgb(0 229 255 / .2));
 }
 
-.brand-mark span { position: absolute; width: 1rem; height: .32rem; border-radius: 999px; background: white; transform: rotate(-35deg); }
-.brand-mark span:first-child { translate: -.25rem -.38rem; opacity: .72; }
-.brand-mark span:nth-child(2) { width: 1.35rem; }
-.brand-mark span:last-child { translate: .25rem .38rem; opacity: .72; }
-
-.nav-item { position:relative; border:1px solid transparent; transform-origin:left center; }
+.nav-item { position:relative; border:1px solid transparent; transform-origin:left center; transition:background 160ms ease,color 160ms ease,transform 160ms ease,padding 220ms ease; }
 .nav-item:hover { background:rgb(255 255 255/.035); transform:translateX(3px); }
 .nav-item-active {
   border-color: rgb(255 255 255 / .075);
-  background: linear-gradient(100deg, rgb(113 83 239 / .22), rgb(99 73 212 / .08));
+  background: linear-gradient(100deg, rgb(10 104 255 / .22), rgb(0 229 255 / .08));
   box-shadow: inset 0 1px rgb(255 255 255 / .05), 0 8px 24px rgb(0 0 0 / .12);
   animation:nav-arrive 240ms cubic-bezier(.2,.8,.2,1);
 }
-.nav-item-active::before { content: ''; position: absolute; left: -4px; width: 3px; height: 18px; border-radius: 4px; background: #8b72ff; box-shadow: 0 0 12px #7557f7; }
-.nav-icon { display: grid; width: 1.75rem; height: 1.75rem; place-items: center; border-radius: .55rem; background: rgb(255 255 255 / .035); }
-.nav-icon svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.nav-icon.icon-overview { color:#b39cff; }
+.nav-item-active::before { content: ''; position: absolute; left: -4px; width: 3px; height: 18px; border-radius: 4px; background: #00e5ff; box-shadow: 0 0 12px #0a68ff; }
+.nav-icon { display: grid; width: 1.9rem; height: 1.9rem; flex:none; place-items: center; border:1px solid rgb(255 255 255/.035); border-radius: .6rem; background: rgb(255 255 255 / .04); transition:160ms ease; }
+.nav-icon svg { width: 1.08rem; height: 1.08rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.nav-icon.icon-overview { color:#29f3ff; }
 .nav-icon.icon-containers { color:#68d9ea; }
 .nav-icon.icon-images { color:#7ca7ff; }
 .nav-icon.icon-volumes { color:#eb79b6; }
 .nav-icon.icon-networks { color:#62dca0; }
 .nav-icon.icon-storage { color:#f3ad69; }
-.nav-icon.icon-engine { color:#a99cf0; }
-.nav-item-active .nav-icon { background:rgb(119 88 242/.18); filter:drop-shadow(0 0 6px currentColor); }
+.nav-icon.icon-engine { color:#7dd3fc; }
+.nav-item-active .nav-icon { border-color:rgb(0 229 255/.16); background:rgb(10 104 255/.2); filter:drop-shadow(0 0 6px rgb(0 229 255/.22)); }
 .nav-count { color: #777785; background: rgb(0 0 0 / .24); }
-.nav-item-active .nav-count { color: #c6bbfa; background: rgb(111 82 226 / .16); }
+.nav-item-active .nav-count { color: #29f3ff; background: rgb(0 229 255 / .14); }
+
+.sidebar-compact .sidebar { width:4.75rem; box-shadow:10px 0 32px rgb(0 0 0/.1); }
+.sidebar-compact .app-content { margin-left:4.75rem; }
+.sidebar-compact .brand { justify-content:center; padding-right:.5rem; padding-left:.5rem; }
+.sidebar-compact .brand-mark { width:2.55rem; height:2.55rem; }
+.sidebar-compact .brand-copy,
+.sidebar-compact .nav-label,
+.sidebar-compact .nav-count,
+.sidebar-compact .nav-section,
+.sidebar-compact .sidebar-status-copy,
+.sidebar-compact .sidebar-platform { display:none; }
+.sidebar-compact .sidebar nav { padding-right:.65rem; padding-left:.65rem; }
+.sidebar-compact .nav-item { justify-content:center; gap:0; padding-right:.55rem; padding-left:.55rem; }
+.sidebar-compact .nav-item:hover { transform:translateY(-1px); }
+.sidebar-compact .nav-icon { width:2.2rem; height:2.2rem; border-radius:.68rem; }
+.sidebar-compact .nav-icon svg { width:1.2rem; height:1.2rem; }
+.sidebar-compact .nav-item::after {
+  content:attr(data-label);
+  position:absolute;
+  z-index:40;
+  top:50%;
+  left:calc(100% + .72rem);
+  padding:.42rem .62rem;
+  border:1px solid rgb(255 255 255/.09);
+  border-radius:.55rem;
+  background:rgb(3 19 46/.96);
+  color:#f7f9fc;
+  box-shadow:0 8px 22px rgb(0 0 0/.28);
+  font-size:.68rem;
+  font-weight:550;
+  opacity:0;
+  pointer-events:none;
+  transform:translate(-4px,-50%);
+  transition:opacity 120ms ease,transform 120ms ease;
+  white-space:nowrap;
+}
+.sidebar-compact .nav-item:hover::after,
+.sidebar-compact .nav-item:focus-visible::after { opacity:1; transform:translate(0,-50%); }
+.sidebar-compact .sidebar-status { right:.7rem; left:.7rem; display:grid; padding:.45rem; place-items:center; }
+.sidebar-compact .sidebar-status > div { justify-content:center; }
+.sidebar-compact .sidebar-status .status-orb { width:1.8rem; height:1.8rem; }
 
 .sidebar-status { border: 1px solid rgb(255 255 255 / .065); background: linear-gradient(145deg, rgb(255 255 255 / .045), rgb(255 255 255 / .018)); box-shadow: inset 0 1px rgb(255 255 255 / .035); }
 .status-orb { position: relative; display: grid; width: 1.65rem; height: 1.65rem; flex: none; place-items: center; border-radius: 999px; }
@@ -2292,8 +2480,9 @@ onBeforeUnmount(() => {
 .status-orb.is-online { color: #42dc9a; background: rgb(48 211 145 / .11); }
 .status-orb.is-offline { color: #fb7185; background: rgb(244 63 94 / .11); }
 
-.topbar { border-bottom: 1px solid rgb(255 255 255 / .05); background: rgb(11 12 19 / .66); }
 .content-canvas { animation:page-arrive 260ms cubic-bezier(.2,.8,.2,1); }
+.content-tools { display:flex; min-height:2.4rem; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; }
+.content-context { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .search-wrap { position: relative; }
 .search-wrap svg { position: absolute; z-index: 1; top: 50%; left: .75rem; width: .95rem; translate: 0 -50%; fill: none; stroke: #71717f; stroke-width: 1.8; stroke-linecap: round; }
 .search-wrap .field { padding-left: 2.25rem; }
@@ -2312,12 +2501,12 @@ onBeforeUnmount(() => {
   padding: 1.15rem;
   box-shadow: inset 0 1px rgb(255 255 255 / .045), 0 14px 34px rgb(0 0 0 / .14);
 }
-.overview-runtime::after { content: ''; position: absolute; right: -3rem; width: 8rem; height: 8rem; border-radius: 999px; background: #654be0; filter: blur(45px); opacity: .17; }
+.overview-runtime::after { content: ''; position: absolute; right: -3rem; width: 8rem; height: 8rem; border-radius: 999px; background: #0a68ff; filter: blur(45px); opacity: .17; }
 .metric-icon { display: grid; width: 2.75rem; height: 2.75rem; flex: none; place-items: center; border-radius: .9rem; font-size: 1.05rem; font-weight: 600; }
-.metric-icon.violet { background: rgb(125 91 244 / .13); color: #a78bfa; }
+.metric-icon.violet { background: rgb(10 104 255 / .13); color: #29f3ff; }
 .metric-icon.blue { background: rgb(56 139 253 / .12); color: #60a5fa; }
 .metric-icon.pink { background: rgb(236 72 153 / .12); color: #f472b6; }
-.metric-icon.cyan { background: rgb(34 211 238 / .1); color: #67e8f9; }
+.metric-icon.cyan { background: rgb(0 229 255 / .1); color: #29f3ff; }
 .metric-label { margin-bottom: .22rem; color: #777785; font-size: .63rem; font-weight: 650; letter-spacing: .1em; text-transform: uppercase; }
 .metric-value { color: #f7f7fb; font-size: 1.45rem; font-weight: 650; letter-spacing: -.025em; }
 .metric-detail { margin-top: .18rem; color: #656573; font-size: .67rem; }
@@ -2326,7 +2515,7 @@ onBeforeUnmount(() => {
 .group-header { border-bottom:1px solid rgb(255 255 255/.055); background:rgb(255 255 255/.015); }
 .group-icon { display:grid; width:2.5rem; height:2.5rem; flex:none; place-items:center; border-radius:.82rem; }
 .group-icon.compose { color:#76ddeb; background:linear-gradient(145deg,rgb(45 190 215/.16),rgb(45 126 215/.07)); }
-.group-icon.standalone { color:#a993fa; background:linear-gradient(145deg,rgb(126 91 238/.17),rgb(85 55 192/.07)); }
+.group-icon.standalone { color:#29f3ff; background:linear-gradient(145deg,rgb(10 104 255/.17),rgb(0 229 255/.07)); }
 .group-icon svg { width:1.15rem; height:1.15rem; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
 .group-count { border:1px solid rgb(255 255 255/.06); border-radius:999px; background:rgb(255 255 255/.035); padding:.08rem .45rem; color:#767684; font-size:.58rem; }
 .mini-status { width:.38rem; height:.38rem; border-radius:999px; background:#565663; }
@@ -2354,7 +2543,7 @@ onBeforeUnmount(() => {
 .resource-item b { color:#bdbdc8; font-size:.64rem; font-weight:550; }
 .resource-track { height:3px; margin-top:.42rem; overflow:hidden; border-radius:999px; background:rgb(255 255 255/.055); }
 .resource-track i { display:block; min-width:2px; height:100%; border-radius:inherit; transition:width 450ms ease; }
-.resource-track i.cpu { background:linear-gradient(90deg,#7358e5,#a387f7); box-shadow:0 0 7px #795ee7; }
+.resource-track i.cpu { background:linear-gradient(90deg,#0a68ff,#00e5ff); box-shadow:0 0 7px #0a68ff; }
 .resource-track i.memory { background:linear-gradient(90deg,#22abc3,#66dce9); box-shadow:0 0 7px #39c4d7; }
 .container-ports { display:flex; min-width:0; flex-wrap:wrap; gap:.3rem; }
 .more-ports { align-self:center; color:#6e6e7b; font-size:.6rem; }
@@ -2369,7 +2558,7 @@ onBeforeUnmount(() => {
 .container-empty h3 { margin-top:1.2rem; color:#e9e9ef; font-size:1.05rem; font-weight:600; }
 .container-empty p { margin:.45rem auto 0; max-width:25rem; color:#6d6d7a; font-size:.76rem; line-height:1.55; }
 .empty-stack { position:relative; width:4.4rem; height:3.6rem; margin:auto; }
-.empty-stack span { position:absolute; left:50%; width:2.8rem; height:.8rem; border:1px solid rgb(139 117 238/.5); border-radius:.35rem; background:linear-gradient(100deg,rgb(116 85 230/.22),rgb(50 196 214/.08)); transform:translateX(-50%) skewY(-8deg); box-shadow:0 8px 18px rgb(52 34 131/.12); }
+.empty-stack span { position:absolute; left:50%; width:2.8rem; height:.8rem; border:1px solid rgb(0 229 255/.5); border-radius:.35rem; background:linear-gradient(100deg,rgb(10 104 255/.22),rgb(0 229 255/.08)); transform:translateX(-50%) skewY(-8deg); box-shadow:0 8px 18px rgb(6 62 155/.14); }
 .empty-stack span:first-child { top:0; opacity:.45; }
 .empty-stack span:nth-child(2) { top:.85rem; opacity:.7; }
 .empty-stack span:last-child { top:1.7rem; border-color:rgb(101 206 220/.45); }
@@ -2389,37 +2578,34 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 .smart-copy { position:relative; z-index:2; max-width:34rem; }
-.smart-copy .eyebrow { color:#8d78ec; font-size:.62rem; font-weight:700; letter-spacing:.2em; }
+.smart-copy .eyebrow { color:#29f3ff; font-size:.62rem; font-weight:700; letter-spacing:.2em; }
 .smart-copy h3 { margin-top:.7rem; color:#f8f8fb; font-size:clamp(1.9rem,3vw,2.65rem); font-weight:650; letter-spacing:-.04em; }
 .smart-copy p { margin-top:.65rem; color:#777785; font-size:.88rem; line-height:1.6; }
 
 .care-visual { position:relative; width:min(29rem,70vw); height:17rem; margin-top:.1rem; }
 .care-halo { position:absolute; border-radius:999px; filter:blur(45px); will-change:transform,opacity; }
-.halo-one { inset:17% 24%; background:rgb(107 78 230/.3); animation:halo-breathe 5.5s ease-in-out infinite; }
+.halo-one { inset:17% 24%; background:rgb(10 104 255/.3); animation:halo-breathe 5.5s ease-in-out infinite; }
 .halo-two { inset:32% 32% 7%; background:rgb(21 190 215/.16); animation:halo-breathe 7s ease-in-out -2.1s infinite reverse; }
-.scan-wave { position:absolute; z-index:0; top:50%; left:50%; width:6rem; height:6rem; border:1px solid rgb(151 125 255/.42); border-radius:2rem; opacity:0; transform:translate(-50%,-50%) rotate(-7deg); }
-.energy-streams { position:absolute; inset:0; width:100%; height:100%; overflow:visible; filter:drop-shadow(0 0 7px rgb(131 103 245/.45)); opacity:.68; }
+.scan-wave { position:absolute; z-index:0; top:50%; left:50%; width:6rem; height:6rem; border:1px solid rgb(0 229 255/.42); border-radius:2rem; opacity:0; transform:translate(-50%,-50%) rotate(-7deg); }
+.energy-streams { position:absolute; inset:0; width:100%; height:100%; overflow:visible; filter:drop-shadow(0 0 7px rgb(10 104 255/.48)); opacity:.68; }
 .stream { fill:none; stroke-width:1.1; stroke-linecap:round; stroke-dasharray:14 24; animation:stream-flow 9s linear infinite; }
 .stream-a { stroke:url(#stream-a); }
 .stream-b { stroke:url(#stream-b); animation-direction:reverse; animation-duration:12s; }
-.care-orbit { position:absolute; top:50%; left:50%; border:1px solid rgb(157 135 245/.16); border-radius:50%; transform:translate(-50%,-50%) rotate(-11deg); will-change:transform; }
+.care-orbit { position:absolute; top:50%; left:50%; border:1px solid rgb(56 189 248/.18); border-radius:50%; transform:translate(-50%,-50%) rotate(-11deg); will-change:transform; }
 .orbit-one { width:20rem; height:10rem; }
 .orbit-two { width:14rem; height:14rem; border-color:rgb(79 198 228/.1); transform:translate(-50%,-50%) rotate(40deg); }
-.care-orbit i { position:absolute; top:12%; left:20%; width:.42rem; height:.42rem; border-radius:999px; background:#9c85fa; box-shadow:0 0 14px #8065ed; }
+.care-orbit i { position:absolute; top:12%; left:20%; width:.42rem; height:.42rem; border-radius:999px; background:#29f3ff; box-shadow:0 0 14px #0a68ff; }
 .orbit-two i { top:72%; left:91%; background:#5fd5ea; box-shadow:0 0 14px #33bfd9; }
 .orbit-one { animation:orbit-spin 19s linear infinite; }
 .orbit-two { animation:orbit-spin-reverse 24s linear infinite; }
 .care-particles { position:absolute; inset:0; }
 .care-particles i { --angle:calc(var(--particle) * 36deg); position:absolute; top:50%; left:50%; width:3px; height:3px; border-radius:999px; background:hsl(calc(185 + var(--particle) * 10) 82% 70%); box-shadow:0 0 7px currentColor; opacity:.25; transform:rotate(var(--angle)) translateX(calc(6.3rem + var(--particle) * .24rem)); animation:particle-twinkle calc(2.8s + var(--particle) * .16s) ease-in-out calc(var(--particle) * -.31s) infinite; }
-.care-core { position:absolute; z-index:1; top:50%; left:50%; display:grid; width:7.4rem; height:7.4rem; place-items:center; border:1px solid rgb(255 255 255/.12); border-radius:2.2rem; background:linear-gradient(145deg,#957afa,#5a38d0); box-shadow:0 0 0 13px rgb(109 78 225/.06),0 30px 65px rgb(75 48 189/.38),inset 0 2px rgb(255 255 255/.28); transform:translate(-50%,-50%) rotate(-7deg); animation:core-float 5.2s cubic-bezier(.45,.05,.55,.95) infinite; will-change:transform; }
-.care-core::before { content:''; position:absolute; inset:-11px; z-index:-1; border-radius:2.65rem; background:conic-gradient(from 30deg,transparent,#a58df8 22%,transparent 41%,#5ed9e8 66%,transparent 82%); opacity:.22; filter:blur(7px); animation:core-aura 8s linear infinite; }
+.care-core { position:absolute; z-index:1; top:50%; left:50%; display:grid; width:8rem; height:8rem; place-items:center; border:1px solid rgb(0 229 255/.12); border-radius:2.3rem; background:radial-gradient(circle,rgb(6 62 155/.26),rgb(2 8 23/.08) 68%,transparent 72%); box-shadow:0 0 0 13px rgb(0 229 255/.05),0 30px 65px rgb(10 104 255/.3); transform:translate(-50%,-50%) rotate(-7deg); animation:core-float 5.2s cubic-bezier(.45,.05,.55,.95) infinite; will-change:transform; }
+.care-core::before { content:''; position:absolute; inset:-11px; z-index:-1; border-radius:2.65rem; background:conic-gradient(from 30deg,transparent,#0a68ff 22%,transparent 41%,#29f3ff 66%,transparent 82%); opacity:.28; filter:blur(7px); animation:core-aura 8s linear infinite; }
 .core-glass { position:absolute; border:1px solid rgb(255 255 255/.12); background:linear-gradient(145deg,rgb(255 255 255/.16),rgb(255 255 255/.015)); box-shadow:inset 0 1px rgb(255 255 255/.18); backdrop-filter:blur(3px); }
 .glass-back { width:4.6rem; height:4.6rem; border-radius:1.45rem; opacity:.32; transform:translate(-2.9rem,-1.85rem) rotate(-19deg); animation:glass-drift-a 6s ease-in-out infinite; }
 .glass-front { width:3.8rem; height:3.8rem; border-radius:1.2rem; opacity:.25; transform:translate(3rem,2rem) rotate(18deg); animation:glass-drift-b 7s ease-in-out -1.2s infinite; }
-.core-mark { position:relative; z-index:2; width:4rem; height:3.4rem; transform:rotate(7deg); }
-.core-mark span { position:absolute; top:1.45rem; left:.9rem; width:2.3rem; height:.58rem; border-radius:999px; background:white; transform:rotate(-35deg); box-shadow:0 3px 10px rgb(49 23 132/.25); }
-.core-mark span:first-child { translate:-.65rem -.95rem; opacity:.75; }
-.core-mark span:last-child { translate:.65rem .95rem; opacity:.75; }
+.core-mark { position:relative; z-index:2; width:7.3rem; height:7.3rem; object-fit:contain; filter:drop-shadow(0 12px 18px rgb(0 229 255/.18)); transform:rotate(7deg); }
 .orbit-chip { position:absolute; z-index:2; display:flex; min-width:6.6rem; flex-direction:column; border:1px solid rgb(255 255 255/.085); border-radius:.85rem; background:rgb(21 22 33/.82); padding:.6rem .8rem; text-align:left; box-shadow:0 12px 28px rgb(0 0 0/.22),inset 0 1px rgb(255 255 255/.05); backdrop-filter:blur(12px); }
 .orbit-chip b { color:#eeeeF5; font-size:.8rem; }
 .orbit-chip span { margin-top:.1rem; color:#6f6f7d; font-size:.58rem; }
@@ -2441,11 +2627,11 @@ onBeforeUnmount(() => {
 .care-summary b { color:#cfcfd8; font-size:.7rem; font-weight:600; }
 .care-summary small { overflow:hidden; margin-top:.12rem; color:#666674; font-size:.58rem; text-overflow:ellipsis; white-space:nowrap; }
 .summary-dot { width:.48rem; height:.48rem; flex:none; border-radius:999px; box-shadow:0 0 10px currentColor; }
-.summary-dot.violet { color:#957df6; background:currentColor; }
+.summary-dot.violet { color:#0a68ff; background:currentColor; }
 .summary-dot.cyan { color:#56d6e8; background:currentColor; }
 .summary-dot.pink { color:#ed6ba9; background:currentColor; }
-.check-button { position:relative; z-index:2; width:5.2rem; height:5.2rem; margin-top:1rem; border:1px solid rgb(180 164 255/.58); border-radius:999px; background:linear-gradient(145deg,#9278f6,#6342d7); color:white; font-size:.82rem; font-weight:650; box-shadow:0 15px 34px rgb(79 49 194/.35),inset 0 2px 2px rgb(255 255 255/.3),inset 0 -4px 10px rgb(47 24 137/.25); transition:180ms ease; }
-.check-button::before { content:''; position:absolute; inset:-7px; border:1px solid rgb(139 112 245/.18); border-radius:inherit; animation:button-breathe 2.8s ease-in-out infinite; }
+.check-button { position:relative; z-index:2; width:5.2rem; height:5.2rem; margin-top:1rem; border:1px solid rgb(41 243 255/.58); border-radius:999px; background:linear-gradient(145deg,#0a68ff,#00e5ff); color:#f7f9fc; font-size:.82rem; font-weight:650; box-shadow:0 15px 34px rgb(6 62 155/.34),inset 0 2px 2px rgb(255 255 255/.3),inset 0 -4px 10px rgb(3 19 46/.28); transition:180ms ease; }
+.check-button::before { content:''; position:absolute; inset:-7px; border:1px solid rgb(0 229 255/.24); border-radius:inherit; animation:button-breathe 2.8s ease-in-out infinite; }
 .check-button:hover { transform:scale(1.04); filter:brightness(1.08); }
 .check-button:active { transform:scale(.98); }
 .check-button:disabled { cursor:wait; opacity:.72; }
@@ -2469,10 +2655,8 @@ onBeforeUnmount(() => {
 }
 
 .offline-state { border:1px solid rgb(255 255 255/.07); background:linear-gradient(145deg,rgb(27 28 40/.82),rgb(19 20 29/.75)); box-shadow:inset 0 1px rgb(255 255 255/.035),0 18px 48px rgb(0 0 0/.14); }
-.offline-icon { position:relative; display:grid; width:4rem; height:4rem; place-items:center; border-radius:1.25rem; background:linear-gradient(145deg,rgb(124 91 242/.22),rgb(76 52 184/.1)); box-shadow:inset 0 1px rgb(255 255 255/.08),0 12px 30px rgb(76 52 184/.15); }
-.offline-icon::before,.offline-icon::after,.offline-icon span { content:''; position:absolute; width:1.45rem; height:.38rem; border-radius:999px; background:#a995ff; transform:rotate(-35deg); }
-.offline-icon::before { translate:-.3rem -.45rem; opacity:.65; }
-.offline-icon::after { translate:.3rem .45rem; opacity:.65; }
+.offline-icon { position:relative; display:grid; width:4.4rem; height:4.4rem; place-items:center; border-radius:1.25rem; background:radial-gradient(circle,rgb(10 104 255/.18),transparent 70%); box-shadow:0 12px 30px rgb(6 62 155/.16); }
+.offline-icon img { width:4.2rem; height:4.2rem; object-fit:contain; filter:drop-shadow(0 8px 12px rgb(0 229 255/.16)); }
 
 .panel {
   border: 1px solid rgb(255 255 255 / .07);
@@ -2520,15 +2704,15 @@ onBeforeUnmount(() => {
 }
 
 .primary-button {
-  border: 1px solid rgb(159 137 255 / .42);
-  background: linear-gradient(135deg, #8067ed, #6245dc);
+  border: 1px solid rgb(0 229 255 / .42);
+  background: linear-gradient(135deg, #0a68ff, #00e5ff);
   color: white;
   font-weight: 600;
-  box-shadow: 0 7px 18px rgb(91 62 211 / .22), inset 0 1px rgb(255 255 255 / .18);
+  box-shadow: 0 7px 18px rgb(6 62 155 / .26), inset 0 1px rgb(255 255 255 / .18);
 }
 
 .primary-button:hover {
-  background: linear-gradient(135deg, #927cf3, #7054e6);
+  background: linear-gradient(135deg, #0a68ff, #29f3ff);
   translate: 0 -1px;
 }
 
@@ -2563,8 +2747,8 @@ onBeforeUnmount(() => {
 }
 
 .field:focus {
-  border-color: rgb(130 103 238 / .75);
-  box-shadow: 0 0 0 3px rgb(111 82 226 / .12);
+  border-color: rgb(0 229 255 / .75);
+  box-shadow: 0 0 0 3px rgb(10 104 255 / .14);
 }
 
 .state-badge {
@@ -2605,14 +2789,61 @@ onBeforeUnmount(() => {
 }
 
 #compose-drop-zone.file-drop-target-active {
-  border-color: #8067ed;
-  background: rgb(96 71 207 / .16);
+  border-color: #0a68ff;
+  background: rgb(0 229 255 / .12);
 }
 
 tbody tr { transition: background 150ms ease; }
 
+.storage-page {
+  --storage-border:rgb(255 255 255/.075);
+  --storage-border-strong:rgb(255 255 255/.12);
+  --storage-surface:linear-gradient(145deg,rgb(27 28 40/.9),rgb(19 20 29/.86));
+  --storage-raised:rgb(255 255 255/.035);
+  --storage-text:#ededf2;
+  --storage-muted:#858591;
+  --storage-faint:#676775;
+}
+.storage-hero { position:relative; display:flex; align-items:center; gap:1rem; overflow:hidden; border:1px solid var(--storage-border); border-radius:1.15rem; background:var(--storage-surface); padding:1.3rem 1.4rem; box-shadow:inset 0 1px rgb(255 255 255/.04),0 14px 36px rgb(0 0 0/.12); }
+.storage-hero::after { content:''; position:absolute; right:8%; width:9rem; height:9rem; border-radius:999px; background:#0a68ff; filter:blur(55px); opacity:.15; pointer-events:none; }
+.storage-hero-icon { display:grid; width:3rem; height:3rem; flex:none; place-items:center; border:1px solid rgb(241 173 105/.2); border-radius:.92rem; background:linear-gradient(145deg,rgb(243 173 105/.16),rgb(0 229 255/.08)); color:#efad6d; }
+.storage-hero-icon svg { width:1.35rem; height:1.35rem; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.storage-eyebrow { color:#29f3ff; font-size:.6rem; font-weight:700; letter-spacing:.16em; }
+.storage-hero h3,.cleanup-heading h3,.storage-empty h3 { margin-top:.28rem; color:var(--storage-text); font-size:1rem; font-weight:620; }
+.storage-hero p,.cleanup-heading p,.storage-empty p { margin-top:.3rem; color:var(--storage-muted); font-size:.75rem; line-height:1.55; }
+.safe-badge { z-index:1; display:inline-flex; flex:none; align-items:center; gap:.42rem; margin-left:auto; border:1px solid rgb(66 207 153/.14); border-radius:999px; background:rgb(49 201 145/.07); padding:.38rem .65rem; color:#62dca8; font-size:.63rem; font-weight:600; }
+.safe-badge i { width:.38rem; height:.38rem; border-radius:999px; background:currentColor; box-shadow:0 0 7px currentColor; }
+.storage-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.85rem; }
+.storage-card { border:1px solid var(--storage-border); border-radius:1rem; background:var(--storage-surface); padding:1rem; box-shadow:inset 0 1px rgb(255 255 255/.035),0 12px 30px rgb(0 0 0/.1); }
+.storage-card-head { display:flex; align-items:center; gap:.65rem; }
+.storage-type-icon { display:grid; width:2rem; height:2rem; flex:none; place-items:center; border-radius:.62rem; background:rgb(0 229 255/.1); color:#29f3ff; font-size:.68rem; font-weight:700; }
+.storage-type { color:var(--storage-text); font-size:.72rem; font-weight:600; text-transform:capitalize; }
+.storage-count { margin-top:.08rem; color:var(--storage-faint); font-size:.58rem; }
+.storage-size { margin-top:1.05rem; color:var(--storage-text); font-size:1.65rem; font-weight:650; letter-spacing:-.035em; }
+.storage-track { height:4px; margin-top:.85rem; overflow:hidden; border-radius:999px; background:rgb(255 255 255/.06); }
+.storage-track i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#0a68ff,#00e5ff); box-shadow:0 0 8px #0a68ff; }
+.storage-meta { display:flex; justify-content:space-between; gap:.5rem; margin-top:.65rem; color:var(--storage-faint); font-size:.58rem; }
+.storage-meta b { color:var(--storage-muted); font-weight:600; }
+.storage-empty { border:1px dashed var(--storage-border-strong); border-radius:1rem; background:var(--storage-raised); padding:2.5rem; text-align:center; }
+.storage-empty .empty-stack { transform:scale(.8); }
+.cleanup-panel { border:1px solid var(--storage-border); border-radius:1.15rem; background:var(--storage-surface); padding:1.3rem; box-shadow:inset 0 1px rgb(255 255 255/.035),0 14px 36px rgb(0 0 0/.1); }
+.cleanup-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:2rem; }
+.cleanup-heading p { max-width:32rem; text-align:right; }
+.cleanup-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.65rem; margin-top:1.1rem; }
+.cleanup-action { display:flex; min-width:0; align-items:center; gap:.8rem; border:1px solid var(--storage-border); border-radius:.82rem; background:var(--storage-raised); padding:.78rem .9rem; color:var(--storage-text); text-align:left; transition:160ms ease; }
+.cleanup-action:hover { border-color:rgb(0 229 255/.27); background:rgb(10 104 255/.07); transform:translateY(-1px); }
+.cleanup-action:disabled { cursor:not-allowed; opacity:.45; transform:none; }
+.cleanup-action > span:last-child { display:flex; min-width:0; flex-direction:column; }
+.cleanup-action b { font-size:.72rem; font-weight:600; }
+.cleanup-action small { overflow:hidden; margin-top:.16rem; color:var(--storage-faint); font-size:.59rem; text-overflow:ellipsis; white-space:nowrap; }
+.cleanup-icon { display:grid; width:2rem; height:2rem; flex:none; place-items:center; border-radius:.6rem; background:rgb(0 229 255/.1); color:#29f3ff; font-size:.72rem; }
+.cleanup-danger { grid-column:1/-1; border-color:rgb(239 68 68/.16); }
+.cleanup-danger .cleanup-icon { background:rgb(239 68 68/.09); color:#f17c7c; }
+.cleanup-danger:hover { border-color:rgb(239 68 68/.28); background:rgb(239 68 68/.06); }
+
 @media (max-width: 1180px) {
   .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .storage-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .container-row { grid-template-columns:minmax(220px,1fr) minmax(220px,1fr); }
   .container-ports { grid-column:1; }
   .container-actions { grid-column:2; grid-row:2; }
@@ -2636,12 +2867,12 @@ tbody tr { transition: background 150ms ease; }
 }
 
 @media (max-width: 760px) {
-  .sidebar { width: 5rem; }
-  .brand > div:last-child, .sidebar nav button > span.flex-1, .nav-count, .nav-section, .sidebar-status { display: none; }
+  .sidebar { width: 4.75rem; }
+  .brand-copy, .nav-label, .nav-count, .nav-section, .sidebar-status { display: none; }
   .brand { justify-content: center; padding-inline: .5rem; }
   .nav-item { justify-content: center; }
-  .sidebar-status { display: grid; place-items: center; }
-  .app-shell > div.ml-64 { margin-left: 5rem; }
+  .sidebar-toggle { display:none; }
+  .app-content { margin-left: 4.75rem; }
   .overview-grid { grid-template-columns: 1fr; }
   .container-row { grid-template-columns:1fr; }
   .container-ports,.container-actions { grid-column:1; grid-row:auto; justify-content:flex-start; }
@@ -2649,6 +2880,11 @@ tbody tr { transition: background 150ms ease; }
   .care-summary { grid-template-columns:1fr; }
   .care-summary > div + div { border-top:1px solid rgb(255 255 255/.06); border-left:0; }
   .orbit-chip { display:none; }
-  .topbar, main { padding-inline: 1rem; }
+  .storage-hero { align-items:flex-start; }
+  .safe-badge { display:none; }
+  .storage-grid,.cleanup-grid { grid-template-columns:1fr; }
+  .cleanup-heading { align-items:flex-start; flex-direction:column; gap:.35rem; }
+  .cleanup-heading p { text-align:left; }
+  main { padding-inline: 1rem; }
 }
 </style>

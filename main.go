@@ -86,6 +86,11 @@ func main() {
 		URL:            "/",
 		EnableFileDrop: true,
 		Hidden:         startHidden,
+		Mac: application.MacWindow{
+			InvisibleTitleBarHeight: 56,
+			Backdrop:                application.MacBackdropTranslucent,
+			TitleBar:                application.MacTitleBarHiddenInsetUnified,
+		},
 	})
 
 	window.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {

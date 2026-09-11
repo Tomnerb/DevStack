@@ -72,7 +72,7 @@ async function start() {
       yellow: '#facc15',
       blue: '#60a5fa',
       magenta: '#c084fc',
-      cyan: '#22d3ee',
+      cyan: '#00e5ff',
       white: '#e4e4e7',
     },
   })
