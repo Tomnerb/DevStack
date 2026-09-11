@@ -8,6 +8,7 @@ DevStack is a lightweight, cross-platform desktop environment for managing local
 ## Highlights
 
 - Clean, native-feeling desktop control center
+- Persistent light and dark appearance modes
 - Container start, stop, restart, delete, logs, terminal, and inspect tools
 - Docker Compose import, grouping, project actions, builds, and rebuilds
 - Live CPU, memory, PID, port, and networking information
@@ -119,7 +120,51 @@ Output:
 dist/macos-arm64/DevStack.app
 ```
 
-Development bundles are ad-hoc signed. Public distribution requires an Apple Developer ID signature and notarization.
+Use `amd64` instead of `arm64` when building for an Intel Mac. The `--install`
+option copies the completed application to `~/Applications/DevStack.app`; without
+it, the application remains in `dist/` and can be copied to `Applications`
+manually.
+
+#### Create a macOS DMG installer
+
+Build the application first, then create the DMG from the completed app bundle:
+
+```bash
+./scripts/build-macos.sh arm64 \
+  --guest-assets /path/to/macos-guest
+wails3 task darwin:create:dmg
+```
+
+For an external-Docker-only DMG:
+
+```bash
+./scripts/build-macos.sh arm64 --external-only
+wails3 task darwin:create:dmg
+```
+
+Output:
+
+```text
+bin/devstack.dmg
+```
+
+Use `darwin:create:dmg` after `build-macos.sh`. The higher-level
+`darwin:package:dmg` task rebuilds the application and can replace the native app
+bundle before the VMM helper and guest assets are injected. A native DMG contains
+`devstack-vmm`, `vmlinux`, and `rootfs.ext4`; an external-only DMG is smaller but
+requires an existing Docker or Moby endpoint.
+
+Verify and open the image on macOS with:
+
+```bash
+hdiutil verify bin/devstack.dmg
+open bin/devstack.dmg
+```
+
+Development bundles are ad-hoc signed. This is suitable for local testing, but a
+downloadable release must use an Apple Developer ID Application certificate,
+hardened runtime, notarization, and stapling. Sign the nested VMM helper with its
+Virtualization entitlement before signing the outer application and DMG.
 
 ### Linux
 
@@ -147,18 +192,57 @@ Cross-build the executable from macOS or Linux:
 ./scripts/build-windows.sh amd64
 ```
 
-For a native Windows build and installer:
+To build the current NSIS application installer, run the following commands on
+Windows with Wails and NSIS installed:
 
 ```powershell
 wails3 build GOOS=windows GOARCH=amd64
-./scripts/package-windows.ps1
+.\scripts\package-windows.ps1
 ```
+
+The generated installer is written under `bin/`; its name follows the Wails
+application configuration, normally `devstack-amd64-installer.exe`. This
+installer installs the desktop application, WebView2 runtime when needed, Start
+Menu and desktop shortcuts, and an uninstaller. It does not currently provision
+the native WSL2 guest automatically.
 
 The dedicated WSL2 guest root filesystem must currently be generated on Linux:
 
 ```bash
 ./scripts/build-windows-wsl-rootfs-linux.sh
 ```
+
+Copy `dist/windows-wsl/devstack-wsl-rootfs.tar` to the Windows computer and
+provision the dedicated `DevStack` WSL2 distribution from PowerShell:
+
+```powershell
+.\scripts\check-wsl-windows.ps1
+.\scripts\install-devstack-wsl.ps1 `
+  -Rootfs C:\path\to\devstack-wsl-rootfs.tar
+```
+
+Run these scripts only after WSL2 is enabled. The setup imports an isolated
+distribution named `DevStack` under `%LOCALAPPDATA%\DevStack\wsl`; it does not
+modify an existing Ubuntu or other user-managed WSL distribution.
+
+#### Planned Windows installer variants
+
+The intended release packaging has two explicit choices:
+
+- `DevStack-External-Setup.exe` installs the desktop application for use with an
+  existing Docker or Moby endpoint and does not require WSL2.
+- `DevStack-Native-Setup.exe` bundles the DevStack root filesystem and offers to
+  provision the dedicated WSL2 runtime with the user's consent.
+
+The native installer should detect WSL2, explain any required Windows feature or
+restart, preserve the DevStack distribution and container data during normal app
+upgrades, and never unregister the distribution during uninstall without a
+separate explicit confirmation. Public releases should Authenticode-sign both
+the application executable and installer.
+
+Until that integrated native installer is implemented and validated on Windows,
+use the NSIS application installer and the separate WSL provisioning command
+above. The Windows native container runtime remains experimental.
 
 ## Validation
 
