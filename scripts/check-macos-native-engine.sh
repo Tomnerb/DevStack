@@ -41,3 +41,7 @@ echo
 echo "Runtime proxy:"
 RUN="$HOME/Library/Application Support/DevStack/run"
 ls -l "$RUN/containerd.sock" 2>/dev/null || echo "  not running"
+
+echo
+echo "Docker-compatible native proxy:"
+ls -l "$RUN/docker.sock" 2>/dev/null || echo "  not running"

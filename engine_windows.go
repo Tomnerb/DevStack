@@ -188,7 +188,7 @@ func (backend windowsEngineBackend) Start(
 	var lastErr error
 
 	for attempt := 0; attempt < 10; attempt++ {
-		if err := service.SwitchDockerEndpoint(endpoint); err == nil {
+		if err := service.ConfigureNativeDockerEndpoint(endpoint); err == nil {
 			if err := service.SelectContainerRuntime(nativeRuntimeProvider()); err != nil {
 				lastErr = err
 				continue
@@ -205,12 +205,12 @@ func (backend windowsEngineBackend) Start(
 	}
 
 	return EngineActionResult{
-			Status: backend.Status(service, distro),
-			Output: output,
-		}, fmt.Errorf(
-			"WSL bridge started but Docker API is not reachable: %w",
-			lastErr,
-		)
+		Status: backend.Status(service, distro),
+		Output: output,
+	}, fmt.Errorf(
+		"WSL bridge started but Docker API is not reachable: %w",
+		lastErr,
+	)
 }
 
 func (backend windowsEngineBackend) Stop(
@@ -262,10 +262,10 @@ func (backend windowsEngineBackend) Delete(
 	distro string,
 ) (EngineActionResult, error) {
 	return EngineActionResult{
-			Status: backend.Status(service, distro),
-		}, errors.New(
-			"DevStack will not unregister or delete a user's WSL distribution",
-		)
+		Status: backend.Status(service, distro),
+	}, errors.New(
+		"DevStack will not unregister or delete a user's WSL distribution",
+	)
 }
 
 func (backend windowsEngineBackend) Provision(
@@ -282,10 +282,10 @@ func (backend windowsEngineBackend) Provision(
 	wsl, err := exec.LookPath("wsl.exe")
 	if err != nil {
 		return EngineActionResult{
-				Status: backend.Status(service, distro),
-			}, errors.New(
-				"WSL is not installed; use elevated PowerShell: wsl --install",
-			)
+			Status: backend.Status(service, distro),
+		}, errors.New(
+			"WSL is not installed; use elevated PowerShell: wsl --install",
+		)
 	}
 
 	script := `. /etc/os-release; case "${ID:-}:${ID_LIKE:-}" in *ubuntu*|*debian*) ;; *) echo "Automatic provisioning supports Ubuntu/Debian-family WSL distributions."; exit 64;; esac; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y docker.io socat; (systemctl enable --now docker || service docker start || true); docker info >/dev/null 2>&1; echo "Docker Engine and socat are ready."`

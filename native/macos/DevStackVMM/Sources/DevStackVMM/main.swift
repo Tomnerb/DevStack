@@ -3,6 +3,7 @@ import Virtualization
 import Darwin
 
 private let defaultGuestPort: UInt32 = 10250
+private let defaultDockerGuestPort: UInt32 = 10251
 
 struct StatusDocument: Codable {
     var running: Bool
@@ -23,6 +24,7 @@ struct Arguments {
     let cpuCount: Int
     let memoryMiB: Int
     let guestPort: UInt32
+    let dockerGuestPort: UInt32
 
     static func parse() throws -> Arguments {
         let values = Array(CommandLine.arguments.dropFirst())
@@ -54,7 +56,8 @@ struct Arguments {
             stateDir: value("--state-dir") ?? defaultState,
             cpuCount: Int(value("--cpu") ?? "4") ?? 4,
             memoryMiB: Int(value("--memory-mib") ?? "2048") ?? 2048,
-            guestPort: UInt32(value("--guest-port") ?? "\(defaultGuestPort)") ?? defaultGuestPort
+            guestPort: UInt32(value("--guest-port") ?? "\(defaultGuestPort)") ?? defaultGuestPort,
+            dockerGuestPort: UInt32(value("--docker-guest-port") ?? "\(defaultDockerGuestPort)") ?? defaultDockerGuestPort
         )
     }
 }
@@ -323,6 +326,7 @@ final class VMRuntime: @unchecked Sendable {
     let delegate: VMStopDelegate
 
     private var proxy: UnixProxyServer?
+    private var dockerProxy: UnixProxyServer?
 
     init(args: Arguments) throws {
         self.args = args
@@ -457,12 +461,25 @@ final class VMRuntime: @unchecked Sendable {
         try proxy.start()
         self.proxy = proxy
 
+        let dockerProxyPath = URL(fileURLWithPath: args.stateDir)
+            .appendingPathComponent("docker.sock")
+            .path
+        let dockerProxy = UnixProxyServer(
+            path: dockerProxyPath,
+            socketDevice: socketDevice,
+            guestPort: args.dockerGuestPort
+        )
+        try dockerProxy.start()
+        self.dockerProxy = dockerProxy
+
         try writeStatus(running: true)
     }
 
     func stop() async {
         proxy?.stop()
         proxy = nil
+        dockerProxy?.stop()
+        dockerProxy = nil
 
         if vm.canRequestStop {
             try? vm.requestStop()

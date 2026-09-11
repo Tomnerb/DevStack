@@ -27,6 +27,9 @@ func TestDefaultAppSettingsPreferNativeEngine(t *testing.T) {
 	if settings.SettingsVersion != currentSettingsVersion {
 		t.Fatalf("settings version = %d, want %d", settings.SettingsVersion, currentSettingsVersion)
 	}
+	if !settings.StartEngineOnLaunch {
+		t.Fatal("new installs must start the selected native engine automatically")
+	}
 }
 
 func TestRuntimeProviderFollowsEngineIdentity(t *testing.T) {

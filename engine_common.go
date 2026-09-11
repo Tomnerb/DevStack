@@ -148,7 +148,7 @@ func (s *DockerService) SelectEngineBackend(
 
 	provider := nativeRuntimeProvider()
 	if provider == "docker" && strings.TrimSpace(status.Endpoint) != "" {
-		if err := s.ConfigureDockerEndpoint(status.Endpoint); err != nil {
+		if err := s.ConfigureNativeDockerEndpoint(status.Endpoint); err != nil {
 			return "", err
 		}
 	}
@@ -308,6 +308,30 @@ func (s *DockerService) ConfigureDockerEndpoint(endpoint string) error {
 		return err
 	}
 	s.replaceDockerClient(next, endpoint)
+	return nil
+}
+
+// ConfigureNativeDockerEndpoint selects the Docker API exposed by a
+// DevStack-owned VM without overwriting the user's saved External Docker
+// identity. This keeps Docker Desktop and DevStack Native separate stores.
+func (s *DockerService) ConfigureNativeDockerEndpoint(endpoint string) error {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return errors.New("native Docker endpoint is empty")
+	}
+	if strings.HasPrefix(endpoint, "/") {
+		endpoint = "unix://" + endpoint
+	}
+	next, err := client.New(client.WithHost(endpoint), client.WithUserAgent("devstack/0.9.0"))
+	if err != nil {
+		return err
+	}
+	previous := s.client.Swap(next)
+	if previous != nil {
+		s.retiredClientMu.Lock()
+		s.retiredClients = append(s.retiredClients, previous)
+		s.retiredClientMu.Unlock()
+	}
 	return nil
 }
 

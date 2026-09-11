@@ -32,10 +32,12 @@ DevStack is a lightweight, cross-platform desktop environment for managing local
                                   │                   │
                            Linux guest          DevStack guest
                                   │                   │
-                           containerd/runc      containerd/runc
+                      dockerd/containerd/runc   dockerd/containerd/runc
 ```
 
 External Docker and Moby endpoints remain available on supported platforms.
+DevStack Native exposes its own Docker-compatible API endpoint; it is a
+separate engine and never overwrites the selected External Docker endpoint.
 
 ## Platform status
 
@@ -46,7 +48,27 @@ External Docker and Moby endpoints remain available on supported platforms.
 | Windows | Dedicated DevStack WSL2 guest | Experimental; native runtime parity remains in progress |
 | All | External Docker/Moby endpoint | Supported |
 
-Docker Compose orchestration currently requires the Docker runtime. Native containerd Compose orchestration is planned.
+Docker Compose orchestration currently requires the Docker runtime. The macOS
+native guest now includes the Docker Engine foundation (`dockerd` over its own
+local socket); target-macOS validation is still required before release.
+
+## Docker contexts and migration
+
+DevStack Native and an existing Docker Desktop/System Docker installation are
+separate container stores. Use separate Docker contexts rather than trying to
+merge live engines:
+
+```text
+docker context: devstack       -> DevStack Native
+docker context: desktop-linux  -> Docker Desktop
+```
+
+The planned **Migrate Docker Data to DevStack** flow is explicitly opt-in. It
+will inventory images, containers, volumes, and Compose projects; show disk and
+compatibility checks; copy supported data to DevStack Native; and verify the
+result. It will never delete, alter, or silently switch the source Docker
+engine. Persistent-data migration requires macOS/Windows target validation and
+is not claimed as complete by this Linux build.
 
 ## Requirements
 

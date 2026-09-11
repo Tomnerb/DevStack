@@ -29,6 +29,7 @@ nameserver 8.8.8.8
 EOF
 
 mkdir -p /etc/containerd
+mkdir -p /etc/docker /var/lib/docker /var/run/docker
 
 cat >/etc/containerd/config.toml <<'EOF'
 version = 3
@@ -60,12 +61,40 @@ if [ ! -S /run/containerd/containerd.sock ]; then
   exec sh
 fi
 
+cat >/etc/docker/daemon.json <<'EOF'
+{
+  "data-root": "/var/lib/docker",
+  "exec-root": "/var/run/docker",
+  "hosts": ["unix:///run/docker.sock"],
+  "iptables": false,
+  "ip6tables": false
+}
+EOF
+
+echo "devstack-init: starting Docker Engine"
+/usr/local/bin/dockerd --config-file /etc/docker/daemon.json >/var/log/dockerd.log 2>&1 &
+
+for _ in $(seq 1 100); do
+  [ -S /run/docker.sock ] && break
+  sleep 0.1
+done
+
+if [ ! -S /run/docker.sock ]; then
+  echo "devstack-init: Docker socket did not appear"
+  exec sh
+fi
+
 echo "devstack-init: starting vsock proxy"
 
 /usr/local/bin/devstack-guestd \
   --port 10250 \
   --target /run/containerd/containerd.sock \
   >/var/log/devstack-guestd.log 2>&1 &
+
+/usr/local/bin/devstack-guestd \
+  --port 10251 \
+  --target /run/docker.sock \
+  >/var/log/devstack-dockerd-proxy.log 2>&1 &
 
 echo "devstack-init: ready"
 

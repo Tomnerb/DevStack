@@ -20,6 +20,7 @@ ALPINE_VERSION="${ALPINE_VERSION:-3.24.1}"
 CONTAINERD_VERSION="${CONTAINERD_VERSION:-2.3.1}"
 RUNC_VERSION="${RUNC_VERSION:-1.5.1}"
 CNI_VERSION="${CNI_VERSION:-1.9.1}"
+DOCKER_VERSION="${DOCKER_VERSION:-28.5.2}"
 
 OUT="${OUT:-$PWD/dist/macos-guest}"
 WORK="$(mktemp -d)"
@@ -69,6 +70,13 @@ do
     "$WORK/bin/$binary" \
     "$WORK/rootfs/usr/local/bin/$binary"
 done
+
+echo "Downloading Docker Engine $DOCKER_VERSION..."
+curl -fL \
+  "https://download.docker.com/linux/static/stable/aarch64/docker-${DOCKER_VERSION}.tgz" \
+  -o "$WORK/docker.tgz"
+tar -xzf "$WORK/docker.tgz" -C "$WORK"
+install -m 0755 "$WORK/docker/dockerd" "$WORK/rootfs/usr/local/bin/dockerd"
 
 echo "Downloading runc $RUNC_VERSION..."
 curl -fL \
@@ -144,6 +152,7 @@ Alpine:     $ALPINE_VERSION
 containerd: $CONTAINERD_VERSION
 runc:       $RUNC_VERSION
 CNI:        $CNI_VERSION
+Docker:     $DOCKER_VERSION
 Kata:       $KATA_VERSION
 Kernel:     $KATA_BINARY
 

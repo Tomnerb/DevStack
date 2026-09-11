@@ -91,7 +91,7 @@ const settings = ref<AppSettings>({
   startAtLogin: false,
   startHidden: false,
   autoReconnectEngine: true,
-  startEngineOnLaunch: false,
+  startEngineOnLaunch: true,
 })
 const status = ref<EngineStatus | null>(null)
 const loading = ref(true)

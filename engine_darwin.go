@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	devstackVMMGuestPort = 10250
+	devstackVMMGuestPort       = 10250
+	devstackVMMDockerGuestPort = 10251
 )
 
 type darwinEngineBackend struct{}
@@ -30,7 +31,7 @@ func (darwinEngineBackend) Name() string {
 }
 
 func nativeRuntimeProvider() string {
-	return "containerd"
+	return "docker"
 }
 
 func (darwinEngineBackend) Options() []string {
@@ -80,7 +81,7 @@ func (backend darwinEngineBackend) Status(
 	}
 
 	stateDir, _ := devstackVMMStateDir()
-	proxySocket := filepath.Join(stateDir, "containerd.sock")
+	proxySocket := filepath.Join(stateDir, "docker.sock")
 
 	output, err := runCommand(
 		5*time.Second,
@@ -93,7 +94,7 @@ func (backend darwinEngineBackend) Status(
 	if err == nil && strings.Contains(output, `"running":true`) {
 		status.Running = true
 		status.Endpoint = proxySocket
-		status.Message = "Native Virtualization.framework VM is running."
+		status.Message = "Native Virtualization.framework VM with Docker-compatible API is running."
 	} else {
 		status.Message = "Native VM is prepared but not running."
 	}
@@ -130,11 +131,11 @@ func (backend darwinEngineBackend) Start(
 
 	if !fileExists(kernel) || !fileExists(disk) {
 		return EngineActionResult{
-				Status: backend.Status(service, ""),
-			}, fmt.Errorf(
-				"macOS guest assets are missing; copy vmlinux and rootfs.ext4 into %s (see scripts/build-macos-guest-assets-linux.sh)",
-				guestDir,
-			)
+			Status: backend.Status(service, ""),
+		}, fmt.Errorf(
+			"macOS guest assets are missing; copy vmlinux and rootfs.ext4 into %s (see scripts/build-macos-guest-assets-linux.sh)",
+			guestDir,
+		)
 	}
 
 	stateDir, err := devstackVMMStateDir()
@@ -145,7 +146,10 @@ func (backend darwinEngineBackend) Start(
 	}
 
 	if status := backend.Status(service, ""); status.Running {
-		if err := service.SelectContainerRuntime("containerd"); err != nil {
+		if err := service.ConfigureNativeDockerEndpoint("unix://" + status.Endpoint); err != nil {
+			return EngineActionResult{Status: status}, err
+		}
+		if err := service.SelectContainerRuntime("docker"); err != nil {
 			return EngineActionResult{Status: status}, err
 		}
 		return EngineActionResult{Status: status}, nil
@@ -201,6 +205,8 @@ func (backend darwinEngineBackend) Start(
 		strconv.Itoa(memoryMiB),
 		"--guest-port",
 		strconv.Itoa(devstackVMMGuestPort),
+		"--docker-guest-port",
+		strconv.Itoa(devstackVMMDockerGuestPort),
 	)
 
 	cmd.Stdout = logFile
@@ -215,12 +221,16 @@ func (backend darwinEngineBackend) Start(
 
 	_ = cmd.Process.Release()
 
-	proxySocket := filepath.Join(stateDir, "containerd.sock")
+	proxySocket := filepath.Join(stateDir, "docker.sock")
 
 	var lastErr error
 	for attempt := 0; attempt < 60; attempt++ {
 		if fileExists(proxySocket) {
-			if err := service.SelectContainerRuntime("containerd"); err == nil {
+			if err := service.ConfigureNativeDockerEndpoint("unix://" + proxySocket); err == nil {
+				if err := service.SelectContainerRuntime("docker"); err != nil {
+					lastErr = err
+					continue
+				}
 				status := backend.Status(service, "")
 				status.Running = true
 				status.Endpoint = proxySocket
@@ -242,11 +252,11 @@ func (backend darwinEngineBackend) Start(
 	}
 
 	return EngineActionResult{
-			Status: backend.Status(service, ""),
-		}, fmt.Errorf(
-			"native VM started but containerd proxy did not become ready: %w",
-			lastErr,
-		)
+		Status: backend.Status(service, ""),
+	}, fmt.Errorf(
+		"native VM started but containerd proxy did not become ready: %w",
+		lastErr,
+	)
 }
 
 func (backend darwinEngineBackend) Stop(
@@ -318,10 +328,10 @@ func (backend darwinEngineBackend) Provision(
 	option string,
 ) (EngineActionResult, error) {
 	return EngineActionResult{
-			Status: backend.Status(service, option),
-		}, errors.New(
-			"macOS native guest assets are prepared outside the running app; use scripts/build-macos-guest-assets-linux.sh and scripts/install-macos-native-assets.sh",
-		)
+		Status: backend.Status(service, option),
+	}, errors.New(
+		"macOS native guest assets are prepared outside the running app; use scripts/build-macos-guest-assets-linux.sh and scripts/install-macos-native-assets.sh",
+	)
 }
 
 func devstackVMMPath() (string, error) {

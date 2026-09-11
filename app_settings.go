@@ -96,6 +96,10 @@ func defaultAppSettings() AppSettings {
 		WSLDistro:           wslDistro,
 		CloseToTray:         true,
 		AutoReconnectEngine: true,
+		// A fresh installation should be usable by opening DevStack, not by
+		// asking the user to run a separate start command. Existing settings are
+		// preserved during migration.
+		StartEngineOnLaunch: true,
 	}
 }
 
