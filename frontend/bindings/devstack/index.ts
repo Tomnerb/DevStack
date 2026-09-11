@@ -25,6 +25,7 @@ export type {
     DockerStatus,
     EngineActionResult,
     EngineStatus,
+    HostContainerStorageItem,
     ImageInfo,
     NetworkInfo,
     PlatformInfo,
@@ -34,5 +35,7 @@ export type {
     RuntimeOperationResult,
     RuntimeOverview,
     RuntimePortMapping,
+    UpdateInfo,
+    VersionInfo,
     VolumeInfo
 } from "./models.js";

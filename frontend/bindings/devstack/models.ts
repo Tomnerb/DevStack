@@ -161,6 +161,19 @@ export interface EngineStatus {
     "wslDistros"?: string[] | null;
 }
 
+export interface HostContainerStorageItem {
+    "id": string;
+    "name": string;
+    "description": string;
+    "path": string;
+    "sizeBytes": number;
+    "size": string;
+    "canReveal": boolean;
+    "canClean": boolean;
+    "engineRunning": boolean;
+    "cleanupLabel": string;
+}
+
 export interface ImageInfo {
     "id": string;
     "shortId": string;
@@ -240,6 +253,24 @@ export interface RuntimePortMapping {
     "containerPort": number;
     "protocol": string;
     "hostIp": string;
+}
+
+export interface UpdateInfo {
+    "currentVersion": string;
+    "latestVersion": string;
+    "available": boolean;
+    "releaseName": string;
+    "releaseUrl": string;
+    "publishedAt": string;
+    "notes": string;
+    "message": string;
+}
+
+export interface VersionInfo {
+    "version": string;
+    "commit": string;
+    "buildDate": string;
+    "channel": string;
 }
 
 export interface VolumeInfo {

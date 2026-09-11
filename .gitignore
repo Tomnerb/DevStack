@@ -7,6 +7,9 @@
 /dist/
 /.task/
 /native/macos/DevStackVMM/.build/
+/macos-guest/
+/build/.swift-module-cache/
+/build/.generated/
 
 # Frontend dependencies and temporary bindings
 /frontend/node_modules/

@@ -7,6 +7,19 @@ ARCH="arm64"
 GUEST_ASSETS=""
 INSTALL=false
 EXTERNAL_ONLY=false
+RELEASE=false
+SIGN_IDENTITY="${DEVSTACK_SIGN_IDENTITY:-}"
+NOTARY_PROFILE="${DEVSTACK_NOTARY_PROFILE:-}"
+RELEASE_TEMP=""
+APP_VERSION=""
+BUILD_NUMBER=""
+
+cleanup() {
+  if [[ -n "$RELEASE_TEMP" && -d "$RELEASE_TEMP" ]]; then
+    rm -rf -- "$RELEASE_TEMP"
+  fi
+}
+trap cleanup EXIT
 
 usage() {
   cat <<'EOF'
@@ -17,6 +30,11 @@ Options:
                       Defaults to dist/macos-guest when present.
   --install           Install the completed bundle to ~/Applications/DevStack.app.
   --external-only     Build without the native VMM helper and Linux guest assets.
+  --release           Create a Developer ID-signed, notarized, and stapled DMG.
+  --sign-identity ID  Developer ID Application identity used by codesign.
+                      May also be set with DEVSTACK_SIGN_IDENTITY.
+  --notary-profile ID Keychain profile created by notarytool store-credentials.
+                      May also be set with DEVSTACK_NOTARY_PROFILE.
   -h, --help          Show this help.
 EOF
 }
@@ -40,6 +58,20 @@ while [[ $# -gt 0 ]]; do
       EXTERNAL_ONLY=true
       shift
       ;;
+    --release)
+      RELEASE=true
+      shift
+      ;;
+    --sign-identity)
+      [[ $# -ge 2 ]] || { echo "--sign-identity requires an identity" >&2; exit 2; }
+      SIGN_IDENTITY="$2"
+      shift 2
+      ;;
+    --notary-profile)
+      [[ $# -ge 2 ]] || { echo "--notary-profile requires a profile name" >&2; exit 2; }
+      NOTARY_PROFILE="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -52,11 +84,66 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "$RELEASE" == true ]]; then
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "Release signing and notarization must run on macOS." >&2
+    exit 1
+  fi
+  if [[ -z "$SIGN_IDENTITY" ]]; then
+    echo "--release requires --sign-identity or DEVSTACK_SIGN_IDENTITY." >&2
+    exit 2
+  fi
+  if [[ -z "$NOTARY_PROFILE" ]]; then
+    echo "--release requires --notary-profile or DEVSTACK_NOTARY_PROFILE." >&2
+    exit 2
+  fi
+  for tool in codesign ditto security xcrun; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      echo "$tool is required for a release build." >&2
+      exit 1
+    fi
+  done
+  SIGNING_IDENTITIES="$(security find-identity -v -p codesigning)"
+  if [[ "$SIGNING_IDENTITIES" != *"$SIGN_IDENTITY"* ]]; then
+    echo "Signing identity was not found in the current keychain: $SIGN_IDENTITY" >&2
+    echo "Install the Developer ID Application certificate and private key first." >&2
+    exit 1
+  fi
+fi
+
 if ! command -v wails3 >/dev/null 2>&1; then
   echo "wails3 is required." >&2
   echo "Install the project version with:" >&2
   echo "  go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.19" >&2
   exit 1
+fi
+
+APP_VERSION="$(tr -d '[:space:]' < VERSION)"
+if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+  echo "VERSION must contain a semantic version such as 0.1.0: $APP_VERSION" >&2
+  exit 2
+fi
+
+BUILD_NUMBER="${DEVSTACK_BUILD_NUMBER:-}"
+if [[ -z "$BUILD_NUMBER" ]]; then
+  BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
+fi
+if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
+  echo "DEVSTACK_BUILD_NUMBER must be numeric: $BUILD_NUMBER" >&2
+  exit 2
+fi
+
+GENERATED_PLIST="build/.generated/Info.plist"
+mkdir -p "$(dirname "$GENERATED_PLIST")"
+cp -f build/darwin/Info.plist "$GENERATED_PLIST"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" "$GENERATED_PLIST"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$GENERATED_PLIST"
+fi
+
+cp -f assets/devstack_icon2.png build/appicon.png
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  swift -module-cache-path build/.swift-module-cache scripts/generate-macos-brand-assets.swift
 fi
 
 if [[ -z "$GUEST_ASSETS" && -f dist/macos-guest/vmlinux && -f dist/macos-guest/rootfs.ext4 ]]; then
@@ -87,8 +174,9 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   wails3 task setup:docker
 fi
 
-echo "Building and packaging DevStack for macOS/$ARCH..."
-wails3 task darwin:package ARCH="$ARCH"
+echo "Building and packaging DevStack $APP_VERSION ($BUILD_NUMBER) for macOS/$ARCH..."
+rm -rf -- bin/devstack.app
+wails3 task darwin:package ARCH="$ARCH" INFO_PLIST="$GENERATED_PLIST"
 
 SOURCE_APP="bin/devstack.app"
 if [[ ! -d "$SOURCE_APP" ]]; then
@@ -107,7 +195,35 @@ if [[ "$EXTERNAL_ONLY" == false ]]; then
   if [[ -f "$GUEST_ASSETS/manifest.txt" ]]; then
     cp -f "$GUEST_ASSETS/manifest.txt" "$RESOURCES/guest/manifest.txt"
   fi
+fi
 
+if [[ "$RELEASE" == true ]]; then
+  if [[ "$EXTERNAL_ONLY" == false ]]; then
+    codesign \
+      --force \
+      --options runtime \
+      --timestamp \
+      --sign "$SIGN_IDENTITY" \
+      --entitlements native/macos/DevStackVMM/devstack-vmm.entitlements \
+      "$RESOURCES/devstack-vmm"
+  fi
+
+  codesign \
+    --force \
+    --options runtime \
+    --timestamp \
+    --sign "$SIGN_IDENTITY" \
+    "$SOURCE_APP"
+  codesign --verify --deep --strict --verbose=2 "$SOURCE_APP"
+
+  RELEASE_TEMP="$(mktemp -d "${TMPDIR:-/tmp}/devstack-release.XXXXXX")"
+  ditto -c -k --keepParent "$SOURCE_APP" "$RELEASE_TEMP/devstack.zip"
+  xcrun notarytool submit "$RELEASE_TEMP/devstack.zip" \
+    --keychain-profile "$NOTARY_PROFILE" \
+    --wait
+  xcrun stapler staple "$SOURCE_APP"
+  xcrun stapler validate "$SOURCE_APP"
+elif [[ "$EXTERNAL_ONLY" == false ]]; then
   codesign \
     --force \
     --sign - \
@@ -132,6 +248,26 @@ if [[ "$INSTALL" == true ]]; then
   echo "Installed: $INSTALL_APP"
 fi
 
+if [[ "$RELEASE" == true ]]; then
+  echo "Creating release DMG..."
+  wails3 task darwin:create:dmg
+  RELEASE_DMG="bin/devstack.dmg"
+  if [[ ! -f "$RELEASE_DMG" ]]; then
+    echo "Expected release DMG was not created at $RELEASE_DMG" >&2
+    exit 1
+  fi
+
+  codesign --force --timestamp --sign "$SIGN_IDENTITY" "$RELEASE_DMG"
+  codesign --verify --verbose=2 "$RELEASE_DMG"
+  xcrun notarytool submit "$RELEASE_DMG" \
+    --keychain-profile "$NOTARY_PROFILE" \
+    --wait
+  xcrun stapler staple "$RELEASE_DMG"
+  xcrun stapler validate "$RELEASE_DMG"
+  VERSIONED_DMG="$DIST_DIR/DevStack-$APP_VERSION-macOS-$ARCH.dmg"
+  cp -f "$RELEASE_DMG" "$VERSIONED_DMG"
+fi
+
 echo
 echo "Built: $DIST_APP"
 if [[ "$EXTERNAL_ONLY" == false ]]; then
@@ -140,4 +276,9 @@ if [[ "$EXTERNAL_ONLY" == false ]]; then
 else
   echo "External Docker-only build; native VM assets were not included."
 fi
-echo "This development bundle is ad-hoc signed. Configure Developer ID signing/notarization before distribution."
+if [[ "$RELEASE" == true ]]; then
+  echo "Release DMG: $VERSIONED_DMG"
+  echo "Developer ID signing, notarization, and stapling completed."
+else
+  echo "This development bundle is ad-hoc signed. Use --release for public distribution."
+fi

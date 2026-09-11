@@ -114,6 +114,36 @@ npm run dev
 
 ## Build
 
+### Versioning and in-app updates
+
+`VERSION` is the product-version source of truth. It contains a semantic version
+without the `v` prefix, for example:
+
+```text
+0.1.0
+```
+
+Production builds embed that version together with the current Git commit and
+UTC build date. The macOS build also writes the version into the app bundle;
+`CFBundleVersion` defaults to the Git commit count and may be overridden in CI:
+
+```bash
+DEVSTACK_BUILD_NUMBER=42 ./scripts/build-macos.sh arm64 \
+  --guest-assets ./macos-guest
+```
+
+The Engine Settings page shows the installed version and includes **Check for
+Updates**. DevStack reads the latest public release from
+`Tomnerb/DevStack` and compares its `vX.Y.Z` tag with the installed version. If
+an update exists, DevStack opens the verified GitHub release page. It does not
+silently replace the application; public installers must remain signed and, on
+macOS, notarized.
+
+For a release, update `VERSION`, commit it, build the signed installers, then
+publish a GitHub release with the matching tag, such as `v0.2.0`. The macOS
+release output is versioned as
+`dist/macos-ARCH/DevStack-VERSION-macOS-ARCH.dmg`.
+
 ### macOS
 
 An external-Docker-only build needs only macOS:
@@ -187,6 +217,37 @@ Development bundles are ad-hoc signed. This is suitable for local testing, but a
 downloadable release must use an Apple Developer ID Application certificate,
 hardened runtime, notarization, and stapling. Sign the nested VMM helper with its
 Virtualization entitlement before signing the outer application and DMG.
+
+#### Create a signed and notarized release DMG
+
+Install a `Developer ID Application` certificate and its private key in the
+login keychain. Store notarization credentials once; use an app-specific password
+instead of the Apple Account password:
+
+```bash
+xcrun notarytool store-credentials "devstack-notary" \
+  --apple-id "YOUR_APPLE_ID" \
+  --team-id "YOUR_TEAM_ID" \
+  --password "YOUR_APP_SPECIFIC_PASSWORD"
+```
+
+Then run the release build with the exact identity shown by
+`security find-identity -v -p codesigning`:
+
+```bash
+./scripts/build-macos.sh arm64 \
+  --guest-assets ./macos-guest \
+  --release \
+  --sign-identity "Developer ID Application: YOUR NAME (TEAM_ID)" \
+  --notary-profile "devstack-notary"
+```
+
+The script signs the nested VMM helper with its Virtualization entitlement,
+signs the application with hardened runtime and a secure timestamp, notarizes
+and staples the application, then creates, signs, notarizes, and staples
+`bin/devstack.dmg`. Credentials remain in Keychain and are never written to the
+repository. `DEVSTACK_SIGN_IDENTITY` and `DEVSTACK_NOTARY_PROFILE` may be used
+instead of their corresponding command-line options.
 
 ### Linux
 

@@ -78,6 +78,24 @@ interface RuntimeOverview {
   }>
 }
 
+interface VersionInfo {
+  version: string
+  commit: string
+  buildDate: string
+  channel: string
+}
+
+interface UpdateInfo {
+  currentVersion: string
+  latestVersion: string
+  available: boolean
+  releaseName: string
+  releaseUrl: string
+  publishedAt: string
+  notes: string
+  message: string
+}
+
 const props = defineProps<{ platform: PlatformInfo | null }>()
 const emit = defineEmits<{ engineChanged: [] }>()
 
@@ -104,6 +122,10 @@ const dockerIdentity = ref<{
 const error = ref('')
 const output = ref('')
 const runtimeOverview = ref<RuntimeOverview | null>(null)
+const versionInfo = ref<VersionInfo | null>(null)
+const updateInfo = ref<UpdateInfo | null>(null)
+const updateBusy = ref(false)
+const updateError = ref('')
 
 const backendOptions = computed(() => {
   const native = props.platform?.os === 'darwin'
@@ -257,9 +279,37 @@ async function toggle(
   try { await save() } catch (err) { error.value = err instanceof Error ? err.message : String(err) }
 }
 
+async function checkForUpdates() {
+  if (updateBusy.value) return
+  updateBusy.value = true
+  updateError.value = ''
+  try {
+    updateInfo.value = await Call.ByName('main.AppService.CheckForUpdates') as UpdateInfo
+  } catch (err) {
+    updateError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    updateBusy.value = false
+  }
+}
+
+async function openUpdatePage() {
+  if (!updateInfo.value?.releaseUrl) return
+  updateError.value = ''
+  try {
+    await Call.ByName('main.AppService.OpenUpdatePage', updateInfo.value.releaseUrl)
+  } catch (err) {
+    updateError.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
 onMounted(async () => {
   try {
-    settings.value = await Call.ByName('main.AppService.GetSettings') as AppSettings
+    const [loadedSettings, loadedVersion] = await Promise.all([
+      Call.ByName('main.AppService.GetSettings'),
+      Call.ByName('main.AppService.GetVersionInfo'),
+    ])
+    settings.value = loadedSettings as AppSettings
+    versionInfo.value = loadedVersion as VersionInfo
     await refresh()
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -530,6 +580,51 @@ onMounted(async () => {
         <label class="setting-row"><div><div class="font-medium">Start hidden</div><div class="text-xs text-zinc-500">Launch directly into the tray.</div></div><input type="checkbox" :checked="settings.startHidden" @change="toggle('startHidden', ($event.target as HTMLInputElement).checked)" /></label>
       </div>
     </section>
+
+    <section class="panel update-panel p-6">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-2">
+            <h3 class="font-semibold">DevStack Updates</h3>
+            <span v-if="versionInfo" class="version-badge">v{{ versionInfo.version }}</span>
+          </div>
+          <p class="mt-1 text-sm text-zinc-500">Check official releases published by Tomnerb/DevStack.</p>
+        </div>
+        <button class="toolbar-button" :disabled="updateBusy" @click="checkForUpdates">
+          {{ updateBusy ? 'Checking…' : 'Check for Updates' }}
+        </button>
+      </div>
+
+      <div v-if="versionInfo" class="version-details mt-4">
+        <div><span>Installed version</span><strong>v{{ versionInfo.version }}</strong></div>
+        <div><span>Channel</span><strong>{{ versionInfo.channel }}</strong></div>
+        <div><span>Build</span><strong class="font-mono">{{ versionInfo.commit || 'development' }}</strong></div>
+        <div><span>Built</span><strong>{{ versionInfo.buildDate || 'local build' }}</strong></div>
+      </div>
+
+      <div
+        v-if="updateInfo"
+        class="update-result mt-4"
+        :class="updateInfo.available ? 'available' : 'current'"
+      >
+        <div class="min-w-0">
+          <strong>{{ updateInfo.message }}</strong>
+          <p v-if="updateInfo.available && updateInfo.releaseName" class="mt-1">{{ updateInfo.releaseName }}</p>
+          <p v-if="updateInfo.available" class="mt-1">The release page contains the signed installer and release notes.</p>
+        </div>
+        <button
+          v-if="updateInfo.available && updateInfo.releaseUrl"
+          class="primary-button shrink-0"
+          @click="openUpdatePage"
+        >
+          Get v{{ updateInfo.latestVersion }}
+        </button>
+      </div>
+
+      <div v-if="updateError" class="mt-4 whitespace-pre-wrap rounded-lg border border-red-900 bg-red-950/30 p-4 text-sm text-red-300">
+        {{ updateError }}
+      </div>
+    </section>
   </div>
 </template>
 
@@ -574,6 +669,21 @@ onMounted(async () => {
 .setting-row input[type="checkbox"]::after { content:''; position:absolute; top:2px; left:2px; width:.9rem; height:.9rem; border-radius:999px; background:#9a9aa5; box-shadow:0 2px 5px rgb(0 0 0/.3); transition:160ms ease; }
 .setting-row input[type="checkbox"]:checked { border-color:rgb(0 229 255/.55); background:linear-gradient(135deg,#0a68ff,#00e5ff); }
 .setting-row input[type="checkbox"]:checked::after { left:calc(100% - 1.02rem); background:white; }
+.version-badge { border:1px solid rgb(0 229 255/.24); border-radius:999px; background:rgb(10 104 255/.1); padding:.2rem .48rem; color:#68eaff; font-size:.62rem; font-weight:650; }
+.version-details { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.55rem; }
+.version-details > div { display:flex; min-width:0; flex-direction:column; gap:.25rem; border:1px solid var(--settings-border); border-radius:.68rem; background:var(--settings-surface); padding:.72rem .8rem; }
+.version-details span { color:var(--settings-faint); font-size:.62rem; }
+.version-details strong { overflow:hidden; color:var(--settings-muted); font-size:.7rem; text-overflow:ellipsis; white-space:nowrap; }
+.update-result { display:flex; align-items:center; justify-content:space-between; gap:1rem; border:1px solid var(--settings-border); border-radius:.75rem; padding:.85rem 1rem; color:var(--settings-muted); }
+.update-result.available { border-color:rgb(0 229 255/.24); background:linear-gradient(135deg,rgb(10 104 255/.11),rgb(0 229 255/.04)); }
+.update-result.current { border-color:rgb(49 201 145/.18); background:rgb(49 201 145/.045); }
+.update-result strong { color:var(--settings-text); font-size:.78rem; }
+.update-result p { color:var(--settings-faint); font-size:.65rem; }
+
+@media (max-width: 760px) {
+  .version-details { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .update-result { align-items:stretch; flex-direction:column; }
+}
 
 :global(html[data-theme="light"] .engine-settings) {
   --settings-border:rgb(38 39 52/.09);

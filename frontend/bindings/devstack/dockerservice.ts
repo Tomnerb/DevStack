@@ -13,6 +13,10 @@ export function AutoRecoverEngine(backend: string, platformOption: string, autoR
     return $Call.ByID(3004408452, backend, platformOption, autoReconnect, startEngine);
 }
 
+export function CleanHostContainerStorage(id: string, mode: string): $CancellablePromise<$models.DockerCLIResult> {
+    return $Call.ByID(728270000, id, mode);
+}
+
 export function CloseTerminal(sessionID: string): $CancellablePromise<void> {
     return $Call.ByID(2250375291, sessionID);
 }
@@ -88,6 +92,10 @@ export function GetDockerMigrationStatus(): $CancellablePromise<$models.DockerMi
 
 export function GetEngineStatus(backend: string, platformOption: string): $CancellablePromise<$models.EngineStatus> {
     return $Call.ByID(2567748191, backend, platformOption);
+}
+
+export function GetHostContainerStorage(): $CancellablePromise<$models.HostContainerStorageItem[] | null> {
+    return $Call.ByID(3251979401);
 }
 
 export function GetPlatformInfo(): $CancellablePromise<$models.PlatformInfo> {
@@ -201,6 +209,10 @@ export function ResizeTerminal(sessionID: string, width: number, height: number)
 
 export function RestartContainer(containerID: string): $CancellablePromise<void> {
     return $Call.ByID(2239070055, containerID);
+}
+
+export function RevealHostContainerStorage(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3857456134, id);
 }
 
 export function RunComposeCommand(project: string, action: string): $CancellablePromise<$models.DockerCLIResult> {

@@ -3,6 +3,12 @@ version: '3'
 vars:
   APP_NAME: "devstack"
   BIN_DIR: "bin"
+  APP_VERSION:
+    sh: "tr -d '[:space:]' < VERSION"
+  BUILD_COMMIT:
+    sh: "git rev-parse --short=12 HEAD 2>/dev/null || echo development"
+  BUILD_DATE:
+    sh: "date -u +%Y-%m-%dT%H:%M:%SZ"
   PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "npm"}}'
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
   # Target OS for build/package/run. Defaults to the host OS, and is overridden
