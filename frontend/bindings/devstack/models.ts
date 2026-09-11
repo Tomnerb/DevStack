@@ -110,6 +110,33 @@ export interface DockerDiskUsageItem {
     "reclaimable": string;
 }
 
+/**
+ * DockerMigrationPreview is read-only discovery for the first-run migration
+ * assistant. It intentionally does not alter the existing Docker engine.
+ */
+export interface DockerMigrationPreview {
+    "available": boolean;
+    "containers": number;
+    "running": number;
+    "images": number;
+    "volumes": number;
+    "message"?: string;
+}
+
+/**
+ * DockerMigrationStatus is deliberately small and pollable. Image archives can
+ * be large, so migration must not keep a frontend RPC open for its full run.
+ */
+export interface DockerMigrationStatus {
+    "kind"?: string;
+    "state": string;
+    "message": string;
+    "importedImages"?: number;
+    "totalImages"?: number;
+    "currentImage"?: string;
+    "error"?: string;
+}
+
 export interface DockerStatus {
     "connected": boolean;
     "apiVersion": string;

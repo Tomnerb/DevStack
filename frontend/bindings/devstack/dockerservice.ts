@@ -29,6 +29,15 @@ export function ConfigureDockerEndpoint(endpoint: string): $CancellablePromise<v
     return $Call.ByID(530670802, endpoint);
 }
 
+/**
+ * ConfigureNativeDockerEndpoint selects the Docker API exposed by a
+ * DevStack-owned VM without overwriting the user's saved External Docker
+ * identity. This keeps Docker Desktop and DevStack Native separate stores.
+ */
+export function ConfigureNativeDockerEndpoint(endpoint: string): $CancellablePromise<void> {
+    return $Call.ByID(106058481, endpoint);
+}
+
 export function ConfiguredDockerEndpoint(): $CancellablePromise<string> {
     return $Call.ByID(1471947120);
 }
@@ -69,6 +78,14 @@ export function GetDiskUsage(): $CancellablePromise<$models.DockerDiskUsageItem[
     return $Call.ByID(3957457885);
 }
 
+export function GetDockerMigrationPreview(): $CancellablePromise<$models.DockerMigrationPreview> {
+    return $Call.ByID(1325530927);
+}
+
+export function GetDockerMigrationStatus(): $CancellablePromise<$models.DockerMigrationStatus> {
+    return $Call.ByID(1701718215);
+}
+
 export function GetEngineStatus(backend: string, platformOption: string): $CancellablePromise<$models.EngineStatus> {
     return $Call.ByID(2567748191, backend, platformOption);
 }
@@ -107,6 +124,30 @@ export function ListVolumes(): $CancellablePromise<$models.VolumeInfo[] | null> 
  */
 export function ListWSLDistros(): $CancellablePromise<string[] | null> {
     return $Call.ByID(938667263);
+}
+
+/**
+ * MigrateDockerContainers copies stopped Docker containers into DevStack Native.
+ */
+export function MigrateDockerContainers(): $CancellablePromise<$models.DockerCLIResult> {
+    return $Call.ByID(2941007034);
+}
+
+/**
+ * MigrateDockerImages copies Docker images into the DevStack Native containerd
+ * namespace one at a time. This avoids a single giant archive, gives the user
+ * meaningful progress, and never modifies the source Docker store.
+ */
+export function MigrateDockerImages(): $CancellablePromise<$models.DockerCLIResult> {
+    return $Call.ByID(930239904);
+}
+
+/**
+ * MigrateDockerVolumes copies local Docker named-volume data into DevStack's
+ * managed volume store. It never stops containers or deletes Docker volumes.
+ */
+export function MigrateDockerVolumes(): $CancellablePromise<$models.DockerCLIResult> {
+    return $Call.ByID(1815855017);
 }
 
 /**
@@ -205,6 +246,19 @@ export function SetConfiguredDockerEndpoint(endpoint: string): $CancellablePromi
 
 export function StartContainer(containerID: string): $CancellablePromise<void> {
     return $Call.ByID(1046942246, containerID);
+}
+
+export function StartDockerContainerMigration(): $CancellablePromise<$models.DockerMigrationStatus> {
+    return $Call.ByID(2433379190);
+}
+
+/**
+ * StartDockerImageMigration starts a single tracked migration and returns
+ * immediately. The UI polls GetDockerMigrationStatus so a long archive export
+ * cannot strand its controls in a busy state if the RPC bridge is interrupted.
+ */
+export function StartDockerImageMigration(): $CancellablePromise<$models.DockerMigrationStatus> {
+    return $Call.ByID(1698842324);
 }
 
 /**

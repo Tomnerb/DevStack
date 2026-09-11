@@ -61,6 +61,10 @@ type DockerService struct {
 	sessionMu        sync.Mutex
 	terminalSessions map[string]*terminalSession
 	logStreams       map[string]*logStreamSession
+
+	migrationMu      sync.RWMutex
+	migrationStatus  DockerMigrationStatus
+	migrationStarted time.Time
 }
 
 type DockerStatus struct {
@@ -246,6 +250,10 @@ func (s *DockerService) ListImages() ([]ImageInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	if runtime, ok := s.currentRuntime().(runtimeImageLister); ok {
+		return runtime.ListRuntimeImages(ctx)
+	}
+
 	result, err := s.client.Load().ImageList(
 		ctx,
 		client.ImageListOptions{
@@ -310,6 +318,10 @@ func (s *DockerService) ListVolumes() ([]VolumeInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	if runtime, ok := s.currentRuntime().(runtimeVolumeLister); ok {
+		return runtime.ListRuntimeVolumes(ctx)
+	}
+
 	result, err := s.client.Load().VolumeList(
 		ctx,
 		client.VolumeListOptions{},
@@ -356,6 +368,11 @@ func (s *DockerService) RemoveVolume(name string, force bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
+	if runtime, ok := s.currentRuntime().(runtimeVolumeRemover); ok {
+		_ = force
+		return runtime.RemoveRuntimeVolume(ctx, name)
+	}
+
 	_, err := s.client.Load().VolumeRemove(
 		ctx,
 		name,
@@ -369,6 +386,10 @@ func (s *DockerService) RemoveVolume(name string, force bool) error {
 func (s *DockerService) ListNetworks() ([]NetworkInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	if runtime, ok := s.currentRuntime().(runtimeNetworkLister); ok {
+		return runtime.ListRuntimeNetworks(ctx)
+	}
 
 	result, err := s.client.Load().NetworkList(
 		ctx,

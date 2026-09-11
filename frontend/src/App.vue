@@ -172,6 +172,25 @@ interface RuntimePortMapping {
   hostIp: string
 }
 
+interface DockerMigrationPreview {
+  available: boolean
+  containers: number
+  running: number
+  images: number
+  volumes: number
+  message?: string
+}
+
+interface DockerMigrationStatus {
+  kind?: string
+  state: 'idle' | 'running' | 'complete' | 'failed' | string
+  message: string
+  importedImages?: number
+  totalImages?: number
+  currentImage?: string
+  error?: string
+}
+
 const activeTab = ref<TabName>('overview')
 const systemTheme = window.matchMedia('(prefers-color-scheme: dark)')
 const savedTheme = window.localStorage.getItem('devstack-color-theme')
@@ -234,13 +253,25 @@ const runtimeCommand = ref('')
 const runtimePorts = ref('')
 const runtimeAutoStart = ref(true)
 const runtimeOperationBusy = ref('')
+const dockerMigrationPreview = ref<DockerMigrationPreview | null>(null)
+const migrationPromptOpen = ref(false)
+const migrationBusy = ref(false)
+const volumeMigrationBusy = ref(false)
+const volumeMigrationStatus = ref<DockerMigrationStatus>({ state: 'idle', message: '' })
+const migrationStatus = ref<DockerMigrationStatus>({ state: 'idle', message: '' })
+const migrationCheck = ref<DockerMigrationPreview | null>(null)
+const migrationProgressStatus = computed(() => (
+  volumeMigrationBusy.value ? volumeMigrationStatus.value : migrationStatus.value
+))
 
 let statsTimer: ReturnType<typeof setInterval> | undefined
 let unsubscribeLogs: (() => void) | undefined
 let unsubscribeDockerEvents: (() => void) | undefined
 let unsubscribeFileDrops: (() => void) | undefined
 let unsubscribeTrayRefresh: (() => void) | undefined
+let unsubscribeMigrationStatus: (() => void) | undefined
 let dockerRefreshTimer: ReturnType<typeof setTimeout> | undefined
+let migrationStatusTimer: ReturnType<typeof setTimeout> | undefined
 const scrollFadeTimers = new Map<Element, ReturnType<typeof setTimeout>>()
 
 function applyColorTheme() {
@@ -471,13 +502,20 @@ const tabs = computed(() => {
     { key: 'containers' as TabName, label: 'Containers', icon: 'containers', count: containers.value.length, section: 'Manage', first: true },
   ]
 
+  if (runtimeCapabilities.value.images || runtimeCapabilities.value.volumes || runtimeCapabilities.value.networks) {
+    if (runtimeCapabilities.value.images) {
+      result.push({ key: 'images' as TabName, label: 'Images', icon: 'images', count: images.value.length, section: 'Manage', first: false })
+    }
+    if (runtimeCapabilities.value.volumes) {
+      result.push({ key: 'volumes' as TabName, label: 'Volumes', icon: 'volumes', count: volumes.value.length, section: 'Manage', first: false })
+    }
+    if (runtimeCapabilities.value.networks) {
+      result.push({ key: 'networks' as TabName, label: 'Networks', icon: 'networks', count: networks.value.length, section: 'Manage', first: false })
+    }
+  }
+
   if (isDockerRuntime.value) {
-    result.push(
-      { key: 'images' as TabName, label: 'Images', icon: 'images', count: images.value.length, section: 'Manage', first: false },
-      { key: 'volumes' as TabName, label: 'Volumes', icon: 'volumes', count: volumes.value.length, section: 'Manage', first: false },
-      { key: 'networks' as TabName, label: 'Networks', icon: 'networks', count: networks.value.length, section: 'Manage', first: false },
-      { key: 'storage' as TabName, label: 'Space Cleanup', icon: 'storage', count: diskUsage.value.length, section: 'Maintain', first: true },
-    )
+    result.push({ key: 'storage' as TabName, label: 'Space Cleanup', icon: 'storage', count: diskUsage.value.length, section: 'Maintain', first: true })
   }
 
   result.push({ key: 'engine' as TabName, label: 'Engine Settings', icon: 'engine', count: 0, section: 'Preferences', first: true })
@@ -527,6 +565,92 @@ async function loadContainers() {
     await loadStats()
   } else {
     stats.value = {}
+  }
+}
+
+async function loadDockerMigrationPreview() {
+  const preview = await Call.ByName(
+    'main.DockerService.GetDockerMigrationPreview',
+  ) as DockerMigrationPreview
+  dockerMigrationPreview.value = preview
+  migrationPromptOpen.value = preview.available
+}
+
+function dismissMigrationPrompt() {
+  migrationPromptOpen.value = false
+}
+
+async function migrateDockerImages() {
+  if (migrationBusy.value) return
+  clearMessages()
+  try {
+    migrationStatus.value = await Call.ByName(
+      'main.DockerService.StartDockerImageMigration',
+    ) as DockerMigrationStatus
+    migrationBusy.value = migrationStatus.value.state === 'running'
+    await pollDockerMigrationStatus()
+  } catch (err) {
+    migrationBusy.value = false
+    showError(err)
+  }
+}
+
+async function migrateDockerContainers() {
+  if (migrationBusy.value) return
+  clearMessages()
+  try {
+    migrationStatus.value = await Call.ByName(
+      'main.DockerService.StartDockerContainerMigration',
+    ) as DockerMigrationStatus
+    migrationBusy.value = migrationStatus.value.state === 'running'
+    await pollDockerMigrationStatus()
+  } catch (err) {
+    migrationBusy.value = false
+    showError(err)
+  }
+}
+
+async function migrateDockerVolumes() {
+  if (volumeMigrationBusy.value) return
+  volumeMigrationBusy.value = true
+  clearMessages()
+  try {
+    const result = await Call.ByName(
+      'main.DockerService.MigrateDockerVolumes',
+    ) as CLIResult
+    showSuccess('Docker named volumes copied into DevStack Native.', result.output)
+  } catch (err) {
+    showError(err)
+  } finally {
+    volumeMigrationBusy.value = false
+  }
+}
+
+async function pollDockerMigrationStatus() {
+  if (migrationStatusTimer) clearTimeout(migrationStatusTimer)
+  try {
+    migrationStatus.value = await Call.ByName(
+      'main.DockerService.GetDockerMigrationStatus',
+    ) as DockerMigrationStatus
+    migrationBusy.value = migrationStatus.value.state === 'running'
+    if (migrationBusy.value) {
+      migrationStatusTimer = setTimeout(() => { void pollDockerMigrationStatus() }, 1000)
+      return
+    }
+    if (migrationStatus.value.state === 'complete') {
+      if (migrationStatus.value.kind === 'container') {
+        showSuccess('Docker containers copied into DevStack Native.', migrationStatus.value.message)
+        await loadContainers()
+      } else {
+        showSuccess('Docker images copied into DevStack Native.', migrationStatus.value.message)
+        await loadImages()
+      }
+    } else if (migrationStatus.value.state === 'failed') {
+      showError(migrationStatus.value.error || migrationStatus.value.message)
+    }
+  } catch (err) {
+    migrationBusy.value = false
+    showError(err)
   }
 }
 
@@ -606,7 +730,9 @@ async function runSmartCheck() {
   const animationFloor = new Promise((resolve) => setTimeout(resolve, 1400))
 
   try {
-    await Promise.allSettled([loadStatus(), loadRuntimeOverview(), loadPlatformInfo()])
+    const checks = await Promise.allSettled([loadStatus(), loadRuntimeOverview(), loadPlatformInfo(), loadDockerMigrationPreview()])
+    const migrationResult = checks[3]
+    if (migrationResult.status === 'fulfilled') migrationCheck.value = dockerMigrationPreview.value
     if (runtimeConnected.value) {
       await loadContainers()
       if (isDockerRuntime.value) {
@@ -994,7 +1120,7 @@ async function removeVolume(volume: VolumeInfo) {
 }
 
 function isDefaultNetwork(network: NetworkInfo) {
-  return ['bridge', 'host', 'none'].includes(network.name)
+  return ['bridge', 'host', 'none', 'devstack-net'].includes(network.name)
 }
 
 async function removeNetwork(network: NetworkInfo) {
@@ -1322,6 +1448,9 @@ function scheduleDockerRefresh() {
   if (dockerRefreshTimer) {
     clearTimeout(dockerRefreshTimer)
   }
+  if (migrationStatusTimer) {
+    clearTimeout(migrationStatusTimer)
+  }
 
   dockerRefreshTimer = setTimeout(() => {
     void refreshFromDockerEvent()
@@ -1391,6 +1520,37 @@ function setupPlatformListeners() {
       void loadCurrentTab()
     },
   )
+
+  unsubscribeMigrationStatus = Events.On(
+    'devstack:migration-status',
+    (payload: any) => {
+      const data = (payload?.data ?? payload) as DockerMigrationStatus
+      if (data.kind === 'volume') {
+        volumeMigrationStatus.value = data
+        volumeMigrationBusy.value = data.state === 'running'
+        if (data.state === 'complete') {
+          void loadVolumes()
+          showSuccess('Docker volumes copied into DevStack Native.', data.message)
+        } else if (data.state === 'failed') {
+          showError(data.error || data.message)
+        }
+        return
+      }
+      migrationStatus.value = data
+      migrationBusy.value = data.state === 'running'
+      if (data.state === 'complete') {
+        if (data.kind === 'container') {
+          showSuccess('Docker containers copied into DevStack Native.', data.message)
+          void loadContainers()
+        } else {
+          showSuccess('Docker images copied into DevStack Native.', data.message)
+          void loadImages()
+        }
+      } else if (data.state === 'failed') {
+        showError(data.error || data.message)
+      }
+    },
+  )
 }
 
 watch(activeTab, () => {
@@ -1407,6 +1567,7 @@ onMounted(async () => {
       loadStatus(),
       loadPlatformInfo(),
       loadRuntimeOverview(),
+      loadDockerMigrationPreview(),
     ])
 
     if (runtimeConnected.value) {
@@ -1435,6 +1596,7 @@ onBeforeUnmount(() => {
   unsubscribeDockerEvents?.()
   unsubscribeFileDrops?.()
   unsubscribeTrayRefresh?.()
+  unsubscribeMigrationStatus?.()
 
   if (dockerRefreshTimer) {
     clearTimeout(dockerRefreshTimer)
@@ -1669,6 +1831,13 @@ onBeforeUnmount(() => {
             <div><span class="summary-dot violet" /><p><b>Engine</b><small>{{ activeRuntime?.displayName || 'Not selected' }}</small></p></div>
             <div><span class="summary-dot cyan" /><p><b>Resources</b><small>{{ runtimeConnected ? `${formatCPU(totalCPU)} CPU · ${formatBytes(totalMemory)}` : 'Waiting for runtime' }}</small></p></div>
             <div><span class="summary-dot pink" /><p><b>Storage</b><small>{{ diskUsage.length ? `${diskUsage.length} areas analyzed` : 'Ready to analyze' }}</small></p></div>
+          </div>
+
+          <div v-if="migrationCheck?.available" class="migration-check-card">
+            <b>Migration readiness</b>
+            <span>{{ migrationCheck.images }} images · {{ migrationCheck.volumes }} volumes · {{ migrationCheck.containers }} containers</span>
+            <small v-if="migrationCheck.running">Review required: {{ migrationCheck.running }} running container(s) must be stopped before volume migration.</small>
+            <small v-else>Ready to review. Docker data remains unchanged until you start migration.</small>
           </div>
 
           <button class="check-button" :disabled="smartCheckBusy" @click="runSmartCheck">
@@ -2135,7 +2304,10 @@ onBeforeUnmount(() => {
 
         <!-- NETWORKS -->
         <div v-else-if="activeTab === 'networks'" class="space-y-4">
-          <form class="panel flex flex-wrap items-center gap-2 p-4" @submit.prevent="createNetwork">
+          <div v-if="!isDockerRuntime" class="panel border border-cyan-400/25 bg-cyan-950/40 p-4 text-sm leading-6 text-cyan-100">
+            Native containers use DevStack's managed <code class="font-mono text-cyan-200">devstack-net</code> CNI bridge. It provides container-to-container connectivity and localhost port publishing. Custom network creation is not available yet.
+          </div>
+          <form v-else class="panel flex flex-wrap items-center gap-2 p-4" @submit.prevent="createNetwork">
             <input v-model="newNetworkName" class="field min-w-56 flex-1" placeholder="Network name" />
             <select v-model="newNetworkDriver" class="field">
               <option value="bridge">bridge</option>
@@ -2327,6 +2499,37 @@ onBeforeUnmount(() => {
       :container="detailsContainer"
       @close="detailsContainer = null"
     />
+
+    <div v-if="migrationPromptOpen && dockerMigrationPreview" class="migration-backdrop fixed inset-0 z-[80] flex items-center justify-center p-5">
+      <section class="migration-dialog w-full max-w-xl rounded-2xl p-6 shadow-2xl">
+        <p class="migration-eyebrow">DEVSTACK NATIVE</p>
+        <h2 class="migration-title mt-2">Migrate your Docker workspace?</h2>
+        <p class="migration-copy mt-2">{{ dockerMigrationPreview.message }}</p>
+        <div class="mt-5 grid grid-cols-3 gap-3 text-center">
+          <div class="migration-stat p-3"><b>{{ dockerMigrationPreview.containers }}</b><span>containers</span></div>
+          <div class="migration-stat p-3"><b>{{ dockerMigrationPreview.images }}</b><span>images</span></div>
+          <div class="migration-stat p-3"><b>{{ dockerMigrationPreview.volumes }}</b><span>volumes</span></div>
+        </div>
+        <p v-if="dockerMigrationPreview.running" class="migration-warning mt-4">{{ dockerMigrationPreview.running }} container(s) are running. DevStack will ask to stop them before copying volume data.</p>
+        <div v-if="migrationBusy || volumeMigrationBusy" class="migration-progress mt-4" aria-live="polite">
+          <div class="flex items-center justify-between gap-3">
+            <span>{{ migrationProgressStatus.message }}</span>
+            <b v-if="migrationProgressStatus.totalImages">{{ migrationProgressStatus.importedImages || 0 }}/{{ migrationProgressStatus.totalImages }}</b>
+          </div>
+          <div class="migration-progress-track mt-2" role="progressbar" :aria-valuenow="migrationProgressStatus.importedImages || 0" aria-valuemin="0" :aria-valuemax="migrationProgressStatus.totalImages || 0">
+            <span :style="{ width: migrationProgressStatus.totalImages ? `${Math.round(((migrationProgressStatus.importedImages || 0) / migrationProgressStatus.totalImages) * 100)}%` : '4%' }" />
+          </div>
+          <code v-if="migrationProgressStatus.currentImage" class="migration-current-image mt-2">{{ migrationProgressStatus.currentImage }}</code>
+        </div>
+        <div class="mt-6 flex justify-end gap-2">
+          <button class="toolbar-button" @click="dismissMigrationPrompt">Not now</button>
+          <button class="toolbar-button" :disabled="migrationBusy || !dockerMigrationPreview.containers" @click="migrateDockerContainers">{{ migrationBusy ? 'Migrating containers…' : 'Migrate containers now' }}</button>
+          <button class="toolbar-button" :disabled="migrationBusy || !dockerMigrationPreview.images" @click="migrateDockerImages">{{ migrationBusy ? 'Migrating images…' : 'Migrate images now' }}</button>
+          <button class="toolbar-button" :disabled="volumeMigrationBusy || !dockerMigrationPreview.volumes" @click="migrateDockerVolumes">{{ volumeMigrationBusy ? 'Migrating volumes…' : 'Migrate volumes now' }}</button>
+          <button class="primary-button" @click="activeTab = 'engine'; migrationPromptOpen = false">Review migration</button>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -2368,6 +2571,25 @@ onBeforeUnmount(() => {
 
 .ambient-one { top: -18rem; right: -8rem; background: #0a68ff; }
 .ambient-two { bottom: -24rem; left: 30%; background: #00e5ff; }
+
+.migration-backdrop { background:rgb(2 6 23/.7); backdrop-filter:blur(8px); }
+.migration-dialog { border:1px solid rgb(34 211 238/.28); background:#030712; box-shadow:0 28px 80px rgb(0 0 0/.55),inset 0 1px rgb(255 255 255/.06); }
+.migration-eyebrow { color:#67e8f9 !important; font-size:.72rem; font-weight:700; letter-spacing:.18em; }
+.migration-title { color:#f8fafc !important; font-size:1.25rem; font-weight:700; }
+.migration-copy { color:#cbd5e1 !important; font-size:.88rem; line-height:1.55; }
+.migration-stat { border:1px solid rgb(255 255 255/.13); border-radius:.75rem; background:rgb(255 255 255/.035); }
+.migration-stat b { display:block; color:#f8fafc !important; font-size:1.25rem; font-weight:700; }
+.migration-stat span { color:#94a3b8 !important; font-size:.75rem; }
+.migration-warning { color:#fcd34d !important; font-size:.78rem; line-height:1.55; }
+.migration-progress { color:#67e8f9 !important; font-size:.78rem; line-height:1.55; }
+.migration-progress b { color:#e0f2fe !important; font-variant-numeric:tabular-nums; }
+.migration-progress-track { height:.4rem; overflow:hidden; border:1px solid rgb(103 232 249/.22); border-radius:999px; background:rgb(255 255 255/.06); }
+.migration-progress-track span { display:block; height:100%; min-width:.4rem; border-radius:inherit; background:linear-gradient(90deg,#22d3ee,#3b82f6); transition:width .25s ease; }
+.migration-current-image { display:block; overflow:hidden; color:#94a3b8 !important; font-size:.7rem; text-overflow:ellipsis; white-space:nowrap; }
+.migration-check-card { margin-top:1rem; border:1px solid rgb(34 211 238/.2); border-radius:.75rem; padding:.8rem 1rem; background:rgb(8 47 73/.22); color:#bae6fd; }
+.migration-check-card b,.migration-check-card span,.migration-check-card small { display:block; }
+.migration-check-card span { margin-top:.2rem; color:#e0f2fe; font-size:.82rem; }
+.migration-check-card small { margin-top:.3rem; color:#fcd34d; font-size:.75rem; }
 
 .sidebar {
   width: 16rem;

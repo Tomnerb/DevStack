@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/moby/moby/client"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 const (
@@ -76,6 +77,774 @@ type DockerDiskUsageItem struct {
 
 type DockerCLIResult struct {
 	Output string `json:"output"`
+}
+
+// DockerMigrationPreview is read-only discovery for the first-run migration
+// assistant. It intentionally does not alter the existing Docker engine.
+type DockerMigrationPreview struct {
+	Available  bool   `json:"available"`
+	Containers int    `json:"containers"`
+	Running    int    `json:"running"`
+	Images     int    `json:"images"`
+	Volumes    int    `json:"volumes"`
+	Message    string `json:"message,omitempty"`
+}
+
+// DockerMigrationStatus is deliberately small and pollable. Image archives can
+// be large, so migration must not keep a frontend RPC open for its full run.
+type DockerMigrationStatus struct {
+	Kind           string `json:"kind,omitempty"`
+	State          string `json:"state"`
+	Message        string `json:"message"`
+	ImportedImages int    `json:"importedImages,omitempty"`
+	TotalImages    int    `json:"totalImages,omitempty"`
+	CurrentImage   string `json:"currentImage,omitempty"`
+	Error          string `json:"error,omitempty"`
+}
+
+const dockerMigrationStatusEvent = "devstack:migration-status"
+
+func (s *DockerService) GetDockerMigrationStatus() DockerMigrationStatus {
+	s.migrationMu.Lock()
+	defer s.migrationMu.Unlock()
+	if s.migrationStatus.State == "running" && !s.migrationStarted.IsZero() && time.Since(s.migrationStarted) > 15*time.Minute {
+		s.migrationStatus = DockerMigrationStatus{
+			State:   "failed",
+			Message: "Docker image migration did not finish in time.",
+			Error:   "The migration job exceeded its 15 minute safety limit. No Docker resources were deleted; retry after checking the reported error.",
+		}
+		s.migrationStarted = time.Time{}
+	}
+	return s.migrationStatus
+}
+
+func (s *DockerService) emitMigrationStatus(status DockerMigrationStatus) {
+	app := application.Get()
+	if app != nil {
+		// Wails can dispatch this while handling the RPC that starts migration.
+		// Never let a UI event hold the worker launch or image-transfer loop.
+		go app.Event.Emit(dockerMigrationStatusEvent, status)
+	}
+}
+
+// StartDockerImageMigration starts a single tracked migration and returns
+// immediately. The UI polls GetDockerMigrationStatus so a long archive export
+// cannot strand its controls in a busy state if the RPC bridge is interrupted.
+func (s *DockerService) StartDockerImageMigration() DockerMigrationStatus {
+	s.migrationMu.Lock()
+	if s.migrationStatus.State == "running" {
+		status := s.migrationStatus
+		s.migrationMu.Unlock()
+		return status
+	}
+	s.migrationStatus = DockerMigrationStatus{
+		State:   "running",
+		Message: "Exporting Docker images. This can take several minutes for large images.",
+	}
+	s.migrationStarted = time.Now()
+	status := s.migrationStatus
+	s.migrationMu.Unlock()
+	s.emitMigrationStatus(status)
+
+	go func() {
+		result, err := s.MigrateDockerImages()
+		status := DockerMigrationStatus{State: "failed", Message: "Docker image migration failed."}
+		if err != nil {
+			status.Error = err.Error()
+		} else {
+			status.State = "complete"
+			status.Message = result.Output
+			status.ImportedImages = countImportedImages(result.Output)
+			status.TotalImages = status.ImportedImages
+		}
+		s.migrationMu.Lock()
+		s.migrationStatus = status
+		s.migrationStarted = time.Time{}
+		s.migrationMu.Unlock()
+		s.emitMigrationStatus(status)
+	}()
+
+	return s.GetDockerMigrationStatus()
+}
+
+func (s *DockerService) StartDockerContainerMigration() DockerMigrationStatus {
+	s.migrationMu.Lock()
+	if s.migrationStatus.State == "running" {
+		status := s.migrationStatus
+		s.migrationMu.Unlock()
+		return status
+	}
+	s.migrationStatus = DockerMigrationStatus{
+		Kind:    "container",
+		State:   "running",
+		Message: "Preparing Docker containers for migration into DevStack Native.",
+	}
+	s.migrationStarted = time.Now()
+	status := s.migrationStatus
+	s.migrationMu.Unlock()
+	s.emitMigrationStatus(status)
+
+	go func() {
+		result, err := s.MigrateDockerContainers()
+		status := DockerMigrationStatus{Kind: "container", State: "failed", Message: "Docker container migration failed."}
+		if err != nil {
+			status.Error = err.Error()
+		} else {
+			status.State = "complete"
+			status.Message = result.Output
+			status.ImportedImages = s.countMigratedFromMessage(result.Output)
+			if status.ImportedImages == 0 {
+				status.ImportedImages = status.TotalImages
+			}
+			if status.TotalImages == 0 {
+				status.TotalImages = status.ImportedImages
+			}
+		}
+		s.migrationMu.Lock()
+		s.migrationStatus = status
+		s.migrationStarted = time.Time{}
+		s.migrationMu.Unlock()
+		s.emitMigrationStatus(status)
+	}()
+
+	return s.GetDockerMigrationStatus()
+}
+
+func (s *DockerService) setDockerMigrationProgress(status DockerMigrationStatus) {
+	s.migrationMu.Lock()
+	if s.migrationStatus.State == "running" {
+		status.State = "running"
+		s.migrationStatus = status
+	}
+	updated := s.migrationStatus
+	s.migrationMu.Unlock()
+	s.emitMigrationStatus(updated)
+}
+
+func (s *DockerService) countMigratedFromMessage(message string) int {
+	const expectedPrefix = "Migrated "
+	if !strings.HasPrefix(message, expectedPrefix) {
+		return 0
+	}
+	rest := strings.TrimPrefix(message, expectedPrefix)
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return 0
+	}
+	count, _ := strconv.Atoi(fields[0])
+	return count
+}
+
+func countImportedImages(message string) int {
+	fields := strings.Fields(message)
+	if len(fields) < 2 {
+		return 0
+	}
+	count, _ := strconv.Atoi(fields[1])
+	return count
+}
+
+func (s *DockerService) GetDockerMigrationPreview() DockerMigrationPreview {
+	allContainers, err := runDockerCLI(8*time.Second, "", "container", "ls", "-aq")
+	if err != nil {
+		return DockerMigrationPreview{Message: err.Error()}
+	}
+	running, err := runDockerCLI(8*time.Second, "", "container", "ls", "-q")
+	if err != nil {
+		return DockerMigrationPreview{Message: err.Error()}
+	}
+	images, err := runDockerCLI(8*time.Second, "", "image", "ls", "-q")
+	if err != nil {
+		return DockerMigrationPreview{Message: err.Error()}
+	}
+	volumes, err := runDockerCLI(8*time.Second, "", "volume", "ls", "-q")
+	if err != nil {
+		return DockerMigrationPreview{Message: err.Error()}
+	}
+
+	preview := DockerMigrationPreview{
+		Containers: countDockerList(allContainers),
+		Running:    countDockerList(running),
+		Images:     countDockerList(images),
+		Volumes:    countDockerList(volumes),
+	}
+	preview.Available = preview.Containers > 0 || preview.Images > 0 || preview.Volumes > 0
+	if preview.Available {
+		preview.Message = "Existing Docker resources were found. Migration is opt-in and leaves Docker unchanged until verification succeeds."
+	}
+	return preview
+}
+
+// MigrateDockerImages copies Docker images into the DevStack Native containerd
+// namespace one at a time. This avoids a single giant archive, gives the user
+// meaningful progress, and never modifies the source Docker store.
+func (s *DockerService) MigrateDockerImages() (DockerCLIResult, error) {
+	images, err := runDockerCLI(30*time.Second, "", "image", "ls", "--format", "{{.Repository}}:{{.Tag}}")
+	if err != nil {
+		return DockerCLIResult{}, err
+	}
+	refs := uniqueDockerImageRefs(validDockerImageRefs(strings.Fields(images)))
+	if len(refs) == 0 {
+		return DockerCLIResult{Output: "No Docker images to migrate."}, nil
+	}
+	s.setDockerMigrationProgress(DockerMigrationStatus{
+		Message:     "Preparing Docker images for migration…",
+		TotalImages: len(refs),
+	})
+
+	dockerPath, err := exec.LookPath("docker")
+	if err != nil {
+		return DockerCLIResult{}, errors.New("docker CLI was not found in PATH")
+	}
+
+	for index, ref := range refs {
+		label := shortMigrationImageRef(ref)
+		s.setDockerMigrationProgress(DockerMigrationStatus{
+			Message:        fmt.Sprintf("Exporting image %d of %d…", index+1, len(refs)),
+			TotalImages:    len(refs),
+			ImportedImages: index,
+			CurrentImage:   label,
+		})
+		if err := s.migrateSingleDockerImage(context.Background(), dockerPath, ref, index+1, len(refs)); err != nil {
+			return DockerCLIResult{}, err
+		}
+		s.setDockerMigrationProgress(DockerMigrationStatus{
+			Message:        fmt.Sprintf("Imported image %d of %d", index+1, len(refs)),
+			TotalImages:    len(refs),
+			ImportedImages: index + 1,
+			CurrentImage:   label,
+		})
+	}
+	return DockerCLIResult{Output: fmt.Sprintf("Imported %d Docker image(s) into DevStack Native.", len(refs))}, nil
+}
+
+func (s *DockerService) migrateSingleDockerImage(parentCtx context.Context, dockerPath, ref string, index, total int) error {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return errors.New("docker image reference is empty")
+	}
+
+	archive, err := os.CreateTemp("", "devstack-docker-images-*.tar")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(archive.Name())
+
+	archivePath := archive.Name()
+	exportCtx, exportCancel := context.WithTimeout(parentCtx, 10*time.Minute)
+	cmd := exec.CommandContext(exportCtx, dockerPath, "image", "save", "-o", archivePath, ref)
+	cmd.Env = os.Environ()
+	output, runErr := cmd.CombinedOutput()
+	timedOut := exportCtx.Err() == context.DeadlineExceeded
+	exportCloseErr := archive.Close()
+	exportCancel()
+	if runErr != nil || exportCloseErr != nil {
+		if timedOut {
+			return fmt.Errorf("Docker export timed out for image %s", ref)
+		}
+		if exportCloseErr != nil {
+			return fmt.Errorf("export Docker image %s: %s", ref, strings.TrimSpace(exportCloseErr.Error()))
+		}
+		return fmt.Errorf("export Docker image %s: %s", ref, strings.TrimSpace(string(output)))
+	}
+
+	importCtx, importCancel := context.WithTimeout(parentCtx, 10*time.Minute)
+	if total > 0 {
+		importedImages := index - 1
+		if importedImages < 0 {
+			importedImages = 0
+		}
+		s.setDockerMigrationProgress(DockerMigrationStatus{
+			Message:        fmt.Sprintf("Importing image %d of %d…", index, total),
+			TotalImages:    total,
+			ImportedImages: importedImages,
+			CurrentImage:   shortMigrationImageRef(ref),
+		})
+	}
+	importErr := networkHelperImportDockerImages(importCtx, archivePath)
+	importCancel()
+	if importErr != nil {
+		return fmt.Errorf("import Docker image %s into DevStack Native: %w", ref, importErr)
+	}
+
+	return nil
+}
+
+func validDockerImageRefs(refs []string) []string {
+	valid := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if strings.HasPrefix(ref, "<none>:") {
+			continue
+		}
+		valid = append(valid, ref)
+	}
+	return valid
+}
+
+// MigrateDockerVolumes copies local Docker named-volume data into DevStack's
+// managed volume store. It never stops containers or deletes Docker volumes.
+func (s *DockerService) MigrateDockerVolumes() (DockerCLIResult, error) {
+	output, err := runDockerCLI(30*time.Second, "", "volume", "ls", "-q")
+	if err != nil {
+		return DockerCLIResult{}, err
+	}
+	volumes := strings.Fields(output)
+	s.emitMigrationStatus(DockerMigrationStatus{Kind: "volume", State: "running", Message: "Preparing named volumes…", TotalImages: len(volumes)})
+	dockerPath, err := exec.LookPath("docker")
+	if err != nil {
+		return DockerCLIResult{}, errors.New("docker CLI was not found in PATH")
+	}
+	for index, volume := range volumes {
+		s.emitMigrationStatus(DockerMigrationStatus{Kind: "volume", State: "running", Message: fmt.Sprintf("Exporting volume %d of %d…", index+1, len(volumes)), TotalImages: len(volumes), ImportedImages: index, CurrentImage: volume})
+		archive, createErr := os.CreateTemp("", "devstack-docker-volume-*.tar")
+		if createErr != nil {
+			return DockerCLIResult{}, createErr
+		}
+		archivePath := archive.Name()
+		defer os.Remove(archivePath)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		cmd := exec.CommandContext(ctx, dockerPath, "run", "--rm", "--network", "none", "-v", volume+":/source:ro", "alpine:latest", "tar", "-C", "/source", "-cf", "-", ".")
+		cmd.Stdout = archive
+		var stderr strings.Builder
+		cmd.Stderr = &stderr
+		runErr := cmd.Run()
+		closeErr := archive.Close()
+		if runErr != nil || closeErr != nil {
+			cancel()
+			return DockerCLIResult{}, fmt.Errorf("export Docker volume %s: %s", volume, strings.TrimSpace(stderr.String()))
+		}
+		copyErr := networkHelperUploadDockerVolume(ctx, volume, archivePath)
+		cancel()
+		if copyErr != nil {
+			return DockerCLIResult{}, fmt.Errorf("copy Docker volume %s: %w", volume, copyErr)
+		}
+		s.emitMigrationStatus(DockerMigrationStatus{Kind: "volume", State: "running", Message: fmt.Sprintf("Copied volume %d of %d", index+1, len(volumes)), TotalImages: len(volumes), ImportedImages: index + 1, CurrentImage: volume})
+	}
+	s.emitMigrationStatus(DockerMigrationStatus{Kind: "volume", State: "complete", Message: fmt.Sprintf("Copied %d Docker volume(s) into DevStack Native.", len(volumes)), TotalImages: len(volumes), ImportedImages: len(volumes)})
+	return DockerCLIResult{Output: fmt.Sprintf("Copied %d Docker volume(s) into DevStack Native.", len(volumes))}, nil
+}
+
+// MigrateDockerContainers copies stopped Docker containers into DevStack Native.
+func (s *DockerService) MigrateDockerContainers() (DockerCLIResult, error) {
+	activeRuntime := s.currentRuntime()
+	runtime, ok := activeRuntime.(runtimeContainerCreator)
+	if !ok {
+		return DockerCLIResult{}, errors.New("container migration is not available for the active runtime")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+
+	listResult, err := s.client.Load().ContainerList(
+		ctx,
+		client.ContainerListOptions{All: true},
+	)
+	if err != nil {
+		return DockerCLIResult{}, err
+	}
+
+	type dockerContainerSummary struct {
+		ID    string
+		Name  string
+		Names []string
+		Image string
+		State string
+	}
+
+	stopped := make([]dockerContainerSummary, 0, len(listResult.Items))
+	items := listResult.Items
+	for _, item := range items {
+		itemState := strings.TrimSpace(strings.ToLower(string(item.State)))
+		if itemState == "" {
+			itemState = strings.TrimSpace(strings.ToLower(string(item.State)))
+		}
+
+		if itemState == "running" {
+			continue
+		}
+		stopped = append(stopped, dockerContainerSummary{
+			ID:    item.ID,
+			Name:  firstContainerName(item.Names),
+			Names: item.Names,
+			Image: item.Image,
+			State: itemState,
+		})
+	}
+
+	s.setDockerMigrationProgress(DockerMigrationStatus{
+		Kind:        "container",
+		State:       "running",
+		Message:     "Preparing stopped Docker containers.",
+		TotalImages: len(stopped),
+	})
+
+	if len(stopped) == 0 {
+		return DockerCLIResult{Output: "No stopped Docker containers to migrate."}, nil
+	}
+
+	// Migration is retry-safe. A partial migration must not turn a retry into
+	// dozens of "already exists" failures just because earlier containers were
+	// successfully created before a later one failed.
+	existingContainers, err := activeRuntime.ListContainers(ctx)
+	if err != nil {
+		return DockerCLIResult{}, fmt.Errorf("list DevStack containers before migration: %w", err)
+	}
+	existingByName := make(map[string]struct{}, len(existingContainers))
+	for _, existing := range existingContainers {
+		if name := strings.TrimSpace(existing.Name); name != "" {
+			existingByName[name] = struct{}{}
+		}
+	}
+
+	runningCount := 0
+	created := 0
+	alreadyMigrated := 0
+	failed := make([]string, 0)
+	failReasons := make(map[string]string, 0)
+	importedImages := make(map[string]bool)
+	imageImportAttempted := make(map[string]bool)
+	dockerPath, err := exec.LookPath("docker")
+	if err != nil {
+		return DockerCLIResult{}, errors.New("docker CLI was not found in PATH")
+	}
+
+	for index, item := range stopped {
+		name := item.Name
+		if name == "" {
+			for _, candidate := range item.Names {
+				if strings.TrimSpace(candidate) != "" {
+					name = candidate
+					break
+				}
+			}
+		}
+		name = strings.TrimPrefix(name, "/")
+		if name == "" {
+			name = item.ID[:12]
+		}
+		name = "docker-" + sanitizeContainerdID(name)
+		if name == "docker-" {
+			name = fmt.Sprintf("docker-%s", item.ID[:12])
+		}
+
+		s.setDockerMigrationProgress(DockerMigrationStatus{
+			Kind:           "container",
+			State:          "running",
+			Message:        fmt.Sprintf("Migrating container %d of %d…", index+1, len(stopped)),
+			TotalImages:    len(stopped),
+			ImportedImages: index,
+			CurrentImage:   name,
+		})
+
+		if _, exists := existingByName[name]; exists {
+			alreadyMigrated++
+			s.setDockerMigrationProgress(DockerMigrationStatus{
+				Kind:           "container",
+				State:          "running",
+				Message:        fmt.Sprintf("Container %d of %d is already in DevStack", index+1, len(stopped)),
+				TotalImages:    len(stopped),
+				ImportedImages: index + 1,
+				CurrentImage:   name,
+			})
+			continue
+		}
+
+		inspect, inspectErr := s.client.Load().ContainerInspect(
+			ctx,
+			item.ID,
+			client.ContainerInspectOptions{},
+		)
+		if inspectErr != nil {
+			failed = append(failed, name)
+			failReasons[name] = fmt.Sprintf("inspect failed: %s", inspectErr)
+			continue
+		}
+
+		var raw struct {
+			Config struct {
+				Image      string   `json:"Image"`
+				Entrypoint []string `json:"Entrypoint"`
+				Cmd        []string `json:"Cmd"`
+			} `json:"Config"`
+
+			NetworkSettings struct {
+				Ports map[string][]dockerPortBinding `json:"Ports"`
+			} `json:"NetworkSettings"`
+		}
+
+		if err := json.Unmarshal(inspect.Raw, &raw); err != nil {
+			failed = append(failed, name)
+			failReasons[name] = fmt.Sprintf("inspect parse failed: %s", err)
+			continue
+		}
+
+		ports := convertDockerPortsFromInspect(raw.NetworkSettings.Ports)
+
+		command := raw.Config.Cmd
+		if len(raw.Config.Entrypoint) > 0 {
+			command = append(raw.Config.Entrypoint, command...)
+		}
+
+		imageRef := strings.TrimSpace(item.Image)
+		configuredImage := strings.TrimSpace(raw.Config.Image)
+		// Docker's summary API returns the immutable image ID for untagged
+		// images. That ID cannot be used as a containerd image name. Inspect
+		// retains the image reference that Docker used to create the container,
+		// so prefer it whenever the summary value is an image ID.
+		if imageRef == "" || imageRef == "<none>:<none>" || isDockerImageID(imageRef) {
+			imageRef = configuredImage
+		}
+		imageRef = strings.TrimSpace(imageRef)
+
+		createErr := s.createContainerWithImageFallback(
+			ctx,
+			runtime,
+			imageRef,
+			RuntimeCreateContainerRequest{
+				Name:         name,
+				Image:        imageRef,
+				Command:      command,
+				AutoStart:    false,
+				PortMappings: ports,
+			},
+			dockerPath,
+			importedImages,
+			imageImportAttempted,
+		)
+
+		if createErr != nil {
+			failed = append(failed, name)
+			failReasons[name] = createErr.Error()
+			continue
+		}
+
+		created++
+		s.setDockerMigrationProgress(DockerMigrationStatus{
+			Kind:           "container",
+			State:          "running",
+			Message:        fmt.Sprintf("Migrated container %d of %d", index+1, len(stopped)),
+			TotalImages:    len(stopped),
+			ImportedImages: index + 1,
+			CurrentImage:   name,
+		})
+	}
+
+	for _, item := range items {
+		itemState := strings.TrimSpace(strings.ToLower(string(item.State)))
+		if itemState == "running" {
+			runningCount++
+		}
+	}
+
+	if runningCount > 0 {
+		s.emitMigrationStatus(DockerMigrationStatus{
+			Kind:         "container",
+			State:        "running",
+			Message:      fmt.Sprintf("Skipped %d running containers; stop them first.", runningCount),
+			TotalImages:  len(stopped),
+			CurrentImage: fmt.Sprintf("%d stopped migrated", created),
+		})
+	}
+
+	if len(failed) > 0 {
+		limit := 6
+		previewCount := 0
+		reasonParts := make([]string, 0, len(failed))
+		for _, name := range failed {
+			if previewCount >= limit {
+				break
+			}
+			reasonParts = append(reasonParts, fmt.Sprintf("%s: %s", name, failReasons[name]))
+			previewCount++
+		}
+		if len(failed) > limit {
+			reasonParts = append(reasonParts, fmt.Sprintf("+ %d more...", len(failed)-limit))
+		}
+		return DockerCLIResult{}, fmt.Errorf(
+			"container migration partially completed: created %d, failed %d (%s)",
+			created,
+			len(failed),
+			strings.Join(reasonParts, ", "),
+		)
+	}
+
+	if alreadyMigrated > 0 {
+		return DockerCLIResult{Output: fmt.Sprintf("Migrated %d stopped Docker container(s) into DevStack Native; %d already migrated.", created, alreadyMigrated)}, nil
+	}
+	return DockerCLIResult{Output: fmt.Sprintf("Migrated %d stopped Docker container(s) into DevStack Native.", created)}, nil
+}
+
+func isDockerImageID(value string) bool {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if !strings.HasPrefix(value, "sha256:") {
+		return false
+	}
+	digest := strings.TrimPrefix(value, "sha256:")
+	if len(digest) != 64 {
+		return false
+	}
+	for _, char := range digest {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *DockerService) createContainerWithImageFallback(
+	ctx context.Context,
+	runtime runtimeContainerCreator,
+	imageRef string,
+	request RuntimeCreateContainerRequest,
+	dockerPath string,
+	importedImages map[string]bool,
+	imageImportAttempted map[string]bool,
+) error {
+	request.Image = imageRef
+
+	_, createErr := runtime.CreateRuntimeContainer(ctx, request)
+	if createErr == nil {
+		return nil
+	}
+
+	if imageRef == "" {
+		return fmt.Errorf("no image reference available: %w", createErr)
+	}
+
+	if !isContainerdImageMissing(createErr) {
+		return createErr
+	}
+
+	if importedImages[imageRef] {
+		return createErr
+	}
+
+	if imageImportAttempted[imageRef] {
+		return createErr
+	}
+	imageImportAttempted[imageRef] = true
+
+	s.setDockerMigrationProgress(DockerMigrationStatus{
+		Kind:         "container",
+		State:        "running",
+		Message:      fmt.Sprintf("Importing image for container migration: %s", imageRef),
+		TotalImages:  0,
+		CurrentImage: shortMigrationImageRef(imageRef),
+	})
+
+	if err := s.migrateSingleDockerImage(context.Background(), dockerPath, imageRef, 0, 0); err != nil {
+		return fmt.Errorf("image migration failed for %s: %w", imageRef, err)
+	}
+	importedImages[imageRef] = true
+
+	_, createErr = runtime.CreateRuntimeContainer(ctx, request)
+	if createErr == nil {
+		return nil
+	}
+	return createErr
+}
+
+func isContainerdImageMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(message, "not present in the devstack namespace")
+}
+
+type dockerPortBinding struct {
+	HostIP   string `json:"HostIP"`
+	HostPort string `json:"HostPort"`
+}
+
+func convertDockerPortsToRuntime(bindings map[string][]dockerPortBinding) []RuntimePortMapping {
+	return convertDockerPortBindings(bindings)
+}
+
+func convertDockerPortBindings(
+	bindings map[string][]dockerPortBinding,
+) []RuntimePortMapping {
+	if len(bindings) == 0 {
+		return []RuntimePortMapping{}
+	}
+
+	mappings := make([]RuntimePortMapping, 0, len(bindings))
+	for rawPort, list := range bindings {
+		parts := strings.Split(rawPort, "/")
+		if len(parts) != 2 {
+			continue
+		}
+
+		containerPort, parseErr := strconv.Atoi(parts[0])
+		if parseErr != nil {
+			continue
+		}
+
+		protocol := strings.ToLower(strings.TrimSpace(parts[1]))
+		if protocol == "" {
+			protocol = "tcp"
+		}
+
+		for _, binding := range list {
+			hostPort, parseErr := strconv.Atoi(binding.HostPort)
+			if parseErr != nil || hostPort < 1 || hostPort > 65535 {
+				continue
+			}
+
+			mappings = append(mappings, RuntimePortMapping{
+				HostPort:      int32(hostPort),
+				ContainerPort: int32(containerPort),
+				Protocol:      protocol,
+				HostIP:        binding.HostIP,
+			})
+		}
+	}
+
+	return mappings
+}
+
+func convertDockerPortsFromInspect(bindings map[string][]dockerPortBinding) []RuntimePortMapping {
+	if len(bindings) == 0 {
+		return []RuntimePortMapping{}
+	}
+	return convertDockerPortBindings(bindings)
+}
+
+func shortMigrationImageRef(ref string) string {
+	if len(ref) <= 18 {
+		return ref
+	}
+	return ref[:18]
+}
+
+func uniqueDockerImageRefs(refs []string) []string {
+	seen := make(map[string]struct{}, len(refs))
+	unique := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if _, exists := seen[ref]; exists {
+			continue
+		}
+		seen[ref] = struct{}{}
+		unique = append(unique, ref)
+	}
+	return unique
+}
+
+func countDockerList(output string) int {
+	if strings.TrimSpace(output) == "" {
+		return 0
+	}
+	return len(strings.Fields(output))
+}
+
+func firstContainerName(names []string) string {
+	for _, value := range names {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (s *DockerService) GetContainerDetails(containerID string) (ContainerDetails, error) {

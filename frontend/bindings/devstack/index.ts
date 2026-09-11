@@ -20,6 +20,8 @@ export type {
     ContainerRuntimeInfo,
     DockerCLIResult,
     DockerDiskUsageItem,
+    DockerMigrationPreview,
+    DockerMigrationStatus,
     DockerStatus,
     EngineActionResult,
     EngineStatus,
