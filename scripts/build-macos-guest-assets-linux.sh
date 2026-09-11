@@ -37,12 +37,14 @@ GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
   ./cmd/devstack-guestd
 
 echo "Downloading Alpine minirootfs $ALPINE_VERSION..."
+ALPINE_ARCHIVE="alpine-minirootfs-${ALPINE_VERSION}-aarch64.tar.gz"
+ALPINE_RELEASE_BRANCH="${ALPINE_VERSION%.*}"
 curl -fL \
-  "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/alpine-minirootfs-${ALPINE_VERSION}-aarch64.tar.gz" \
-  -o "$WORK/alpine.tar.gz"
+  "https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_RELEASE_BRANCH}/releases/aarch64/$ALPINE_ARCHIVE" \
+  -o "$WORK/$ALPINE_ARCHIVE"
 
 curl -fL \
-  "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/alpine-minirootfs-${ALPINE_VERSION}-aarch64.tar.gz.sha256" \
+  "https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_RELEASE_BRANCH}/releases/aarch64/$ALPINE_ARCHIVE.sha256" \
   -o "$WORK/alpine.sha256"
 
 (
@@ -50,7 +52,7 @@ curl -fL \
   sha256sum -c alpine.sha256
 )
 
-tar -xzf "$WORK/alpine.tar.gz" -C "$WORK/rootfs"
+tar -xzf "$WORK/$ALPINE_ARCHIVE" -C "$WORK/rootfs"
 
 echo "Downloading containerd $CONTAINERD_VERSION..."
 curl -fL \
