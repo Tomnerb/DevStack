@@ -1228,9 +1228,9 @@ func (s *DockerService) PruneDocker(scope string) (DockerCLIResult, error) {
 }
 
 func runDockerCLI(timeout time.Duration, dir string, args ...string) (string, error) {
-	dockerPath, err := exec.LookPath("docker")
+	dockerPath, err := dockerCLIPath()
 	if err != nil {
-		return "", errors.New("docker CLI was not found in PATH")
+		return "", errors.New("docker CLI was not found")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)

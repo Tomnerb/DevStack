@@ -112,6 +112,21 @@ interface DiskUsageItem {
   reclaimable: string
 }
 
+interface HostContainerStorageItem {
+  id: string
+  name: string
+  description: string
+  path: string
+  sizeBytes: number
+  size: string
+  canReveal: boolean
+  canClean: boolean
+  engineRunning: boolean
+  cleanupLabel: string
+}
+
+type HostCleanupMode = 'cache' | 'safe' | 'deep'
+
 interface CLIResult {
   output: string
 }
@@ -213,6 +228,7 @@ const images = ref<ImageInfo[]>([])
 const volumes = ref<VolumeInfo[]>([])
 const networks = ref<NetworkInfo[]>([])
 const diskUsage = ref<DiskUsageItem[]>([])
+const hostContainerStorage = ref<HostContainerStorageItem[]>([])
 const stats = ref<Record<string, ResourceStats>>({})
 
 const loading = ref(false)
@@ -227,6 +243,9 @@ const busyProject = ref('')
 const busyProjectAction = ref<ProjectAction | ''>('')
 const composeBusy = ref('')
 const resourceBusy = ref('')
+const storageCleanupTarget = ref<HostContainerStorageItem | null>(null)
+const storageCleanupMode = ref<HostCleanupMode | null>(null)
+const storageCleanupError = ref('')
 
 const collapsedGroups = ref<Record<string, boolean>>({})
 
@@ -529,7 +548,20 @@ function clearMessages() {
 
 function showError(err: unknown) {
   success.value = ''
-  error.value = err instanceof Error ? err.message : String(err)
+  error.value = errorMessage(err)
+}
+
+function errorMessage(err: unknown) {
+  if (err instanceof Error) {
+    return err.message
+  }
+  if (typeof err === 'string') {
+    return err
+  }
+  if (err && typeof err === 'object' && 'message' in err) {
+    return String((err as { message: unknown }).message)
+  }
+  return String(err)
 }
 
 function showSuccess(message: string, output = '') {
@@ -678,6 +710,12 @@ async function loadDiskUsage() {
   ) as DiskUsageItem[]
 }
 
+async function loadHostContainerStorage() {
+  hostContainerStorage.value = await Call.ByName(
+    'main.DockerService.GetHostContainerStorage',
+  ) as HostContainerStorageItem[]
+}
+
 async function loadCurrentTab() {
   loading.value = true
   clearMessages()
@@ -691,6 +729,10 @@ async function loadCurrentTab() {
     if (activeTab.value === 'engine') {
       await loadPlatformInfo()
       return
+    }
+
+    if (activeTab.value === 'storage') {
+      await loadHostContainerStorage()
     }
 
     if (!runtimeConnected.value) {
@@ -713,7 +755,10 @@ async function loadCurrentTab() {
         await loadNetworks()
         break
       case 'storage':
-        await loadDiskUsage()
+        await Promise.allSettled([
+          loadDiskUsage(),
+          loadHostContainerStorage(),
+        ])
         break
     }
   } catch (err) {
@@ -1174,9 +1219,78 @@ async function prune(scope: string) {
     showSuccess(`Docker ${scope} prune completed.`, result.output)
     await Promise.all([
       loadDiskUsage(),
+      loadHostContainerStorage(),
       loadAllCounts(),
     ])
   } catch (err) {
+    showError(err)
+  } finally {
+    resourceBusy.value = ''
+  }
+}
+
+async function revealHostContainerStorage(item: HostContainerStorageItem) {
+  try {
+    await Call.ByName('main.DockerService.RevealHostContainerStorage', item.id)
+  } catch (err) {
+    showError(err)
+  }
+}
+
+function reviewHostContainerStorage(item: HostContainerStorageItem) {
+  storageCleanupTarget.value = item
+  storageCleanupMode.value = null
+  storageCleanupError.value = ''
+}
+
+function closeStorageCleanup() {
+  if (resourceBusy.value) {
+    return
+  }
+  storageCleanupTarget.value = null
+  storageCleanupMode.value = null
+  storageCleanupError.value = ''
+}
+
+function selectHostCleanupMode(mode: HostCleanupMode) {
+  storageCleanupMode.value = mode
+  storageCleanupError.value = ''
+}
+
+function cleanupModeLabel(mode: HostCleanupMode) {
+  return mode === 'cache'
+    ? 'Clean build cache'
+    : mode === 'deep'
+      ? 'Run deep cleanup'
+      : 'Clean unused resources'
+}
+
+async function cleanHostContainerStorage(item: HostContainerStorageItem) {
+  const mode = storageCleanupMode.value
+  if (!mode) {
+    return
+  }
+
+  clearMessages()
+  storageCleanupError.value = ''
+  resourceBusy.value = `host-storage:${item.id}`
+
+  try {
+    const result = await Call.ByName(
+      'main.DockerService.CleanHostContainerStorage',
+      item.id,
+      mode,
+    ) as CLIResult
+    showSuccess(`${item.name} cleanup completed.`, result.output)
+    await Promise.allSettled([
+      loadHostContainerStorage(),
+      loadDiskUsage(),
+      loadAllCounts(),
+    ])
+    storageCleanupTarget.value = null
+    storageCleanupMode.value = null
+  } catch (err) {
+    storageCleanupError.value = errorMessage(err)
     showError(err)
   } finally {
     resourceBusy.value = ''
@@ -2378,6 +2492,45 @@ onBeforeUnmount(() => {
             <span class="safe-badge"><i />Conservative cleanup</span>
           </section>
 
+          <section v-if="hostContainerStorage.length" class="host-storage-panel">
+            <div class="host-storage-heading">
+              <div>
+                <span class="storage-eyebrow">STORAGE ON THIS MAC</span>
+                <h3>Container data folders</h3>
+              </div>
+              <p>Review large container folders, clean unused resources, or reveal their location in Finder.</p>
+            </div>
+
+            <div class="host-storage-list">
+              <article v-for="item in hostContainerStorage" :key="item.id" class="host-storage-row">
+                <div class="host-storage-folder" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M3.5 7.5h6l1.7 2H20.5v9.5h-17z" /><path d="M3.5 7.5V5h6l1.7 2" /></svg>
+                </div>
+                <div class="host-storage-copy">
+                  <h4>{{ item.name }}</h4>
+                  <p>{{ item.description }}</p>
+                  <button class="host-storage-path" :title="item.path" @click="revealHostContainerStorage(item)">
+                    {{ item.path }}
+                  </button>
+                </div>
+                <strong class="host-storage-size">{{ item.size }}</strong>
+                <div class="host-storage-actions">
+                  <button
+                    class="storage-clean-button"
+                    :disabled="!item.canClean || !!resourceBusy"
+                    :title="item.canClean ? 'Remove conservative unused resources from this engine' : 'Start this engine to clean its unused data'"
+                    @click="reviewHostContainerStorage(item)"
+                  >
+                    {{ resourceBusy === `host-storage:${item.id}` ? 'Cleaning…' : item.cleanupLabel }}
+                  </button>
+                  <button class="storage-reveal-button" :disabled="!item.canReveal" @click="revealHostContainerStorage(item)">
+                    Reveal
+                  </button>
+                </div>
+              </article>
+            </div>
+          </section>
+
           <div v-if="diskUsage.length" class="storage-grid">
             <article
               v-for="item in diskUsage"
@@ -2445,6 +2598,83 @@ onBeforeUnmount(() => {
           @engine-changed="loadCurrentTab"
         />
       </main>
+    </div>
+
+    <div
+      v-if="storageCleanupTarget"
+      class="storage-cleanup-backdrop"
+      @click.self="closeStorageCleanup"
+    >
+      <section class="storage-cleanup-sheet">
+        <header>
+          <div>
+            <span class="storage-eyebrow">RECLAIM SPACE</span>
+            <h3>{{ storageCleanupTarget.name }}</h3>
+            <p>{{ storageCleanupTarget.size }} currently allocated on this Mac</p>
+          </div>
+          <button class="storage-cleanup-close" :disabled="!!resourceBusy" @click="closeStorageCleanup">×</button>
+        </header>
+
+        <p v-if="!storageCleanupTarget.engineRunning" class="storage-engine-note">
+          Docker Desktop is stopped. DevStack will start it securely before analyzing and cleaning this data.
+        </p>
+
+        <div class="storage-cleanup-options">
+          <button
+            :class="{ selected: storageCleanupMode === 'cache' }"
+            :aria-pressed="storageCleanupMode === 'cache'"
+            :disabled="!!resourceBusy"
+            @click="selectHostCleanupMode('cache')"
+          >
+            <span class="cleanup-option-icon">◇</span>
+            <span><b>Build cache only</b><small>Remove cached build layers. Containers, images, and volumes stay intact.</small></span>
+            <em>Safest</em>
+          </button>
+          <button
+            :class="{ selected: storageCleanupMode === 'safe' }"
+            :aria-pressed="storageCleanupMode === 'safe'"
+            :disabled="!!resourceBusy"
+            @click="selectHostCleanupMode('safe')"
+          >
+            <span class="cleanup-option-icon">✦</span>
+            <span><b>Clean unused resources</b><small>Stopped containers, unused networks, dangling images, and build cache.</small></span>
+            <em>Recommended</em>
+          </button>
+          <button
+            class="deep"
+            :class="{ selected: storageCleanupMode === 'deep' }"
+            :aria-pressed="storageCleanupMode === 'deep'"
+            :disabled="!!resourceBusy"
+            @click="selectHostCleanupMode('deep')"
+          >
+            <span class="cleanup-option-icon">△</span>
+            <span><b>Deep cleanup</b><small>Also remove every unused image and anonymous volume. Named volumes remain.</small></span>
+            <em>More space</em>
+          </button>
+        </div>
+
+        <div v-if="storageCleanupMode" class="storage-cleanup-confirm">
+          <div>
+            <strong>{{ cleanupModeLabel(storageCleanupMode) }}</strong>
+            <p v-if="storageCleanupMode === 'deep'">Unused tagged images may need to be downloaded again. Named volumes remain protected.</p>
+            <p v-else>Running containers, named volumes, and tagged images remain protected.</p>
+            <p v-if="storageCleanupError" class="storage-cleanup-error">{{ storageCleanupError }}</p>
+          </div>
+          <button
+            class="storage-cleanup-run"
+            :disabled="!!resourceBusy"
+            @click="cleanHostContainerStorage(storageCleanupTarget)"
+          >
+            {{ resourceBusy
+              ? (storageCleanupTarget.engineRunning ? 'Cleaning…' : 'Starting Docker Desktop…')
+              : cleanupModeLabel(storageCleanupMode) }}
+          </button>
+        </div>
+
+        <footer>
+          Docker’s disk image may take a short time to return reclaimed blocks to macOS after cleanup.
+        </footer>
+      </section>
     </div>
 
     <!-- LIVE LOGS -->
@@ -3031,8 +3261,8 @@ tbody tr { transition: background 150ms ease; }
 .storage-hero-icon { display:grid; width:3rem; height:3rem; flex:none; place-items:center; border:1px solid rgb(241 173 105/.2); border-radius:.92rem; background:linear-gradient(145deg,rgb(243 173 105/.16),rgb(0 229 255/.08)); color:#efad6d; }
 .storage-hero-icon svg { width:1.35rem; height:1.35rem; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
 .storage-eyebrow { color:#29f3ff; font-size:.6rem; font-weight:700; letter-spacing:.16em; }
-.storage-hero h3,.cleanup-heading h3,.storage-empty h3 { margin-top:.28rem; color:var(--storage-text); font-size:1rem; font-weight:620; }
-.storage-hero p,.cleanup-heading p,.storage-empty p { margin-top:.3rem; color:var(--storage-muted); font-size:.75rem; line-height:1.55; }
+.storage-hero h3,.host-storage-heading h3,.cleanup-heading h3,.storage-empty h3 { margin-top:.28rem; color:var(--storage-text); font-size:1rem; font-weight:620; }
+.storage-hero p,.host-storage-heading p,.cleanup-heading p,.storage-empty p { margin-top:.3rem; color:var(--storage-muted); font-size:.75rem; line-height:1.55; }
 .safe-badge { z-index:1; display:inline-flex; flex:none; align-items:center; gap:.42rem; margin-left:auto; border:1px solid rgb(66 207 153/.14); border-radius:999px; background:rgb(49 201 145/.07); padding:.38rem .65rem; color:#62dca8; font-size:.63rem; font-weight:600; }
 .safe-badge i { width:.38rem; height:.38rem; border-radius:999px; background:currentColor; box-shadow:0 0 7px currentColor; }
 .storage-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.85rem; }
@@ -3048,6 +3278,53 @@ tbody tr { transition: background 150ms ease; }
 .storage-meta b { color:var(--storage-muted); font-weight:600; }
 .storage-empty { border:1px dashed var(--storage-border-strong); border-radius:1rem; background:var(--storage-raised); padding:2.5rem; text-align:center; }
 .storage-empty .empty-stack { transform:scale(.8); }
+.host-storage-panel { overflow:hidden; border:1px solid var(--storage-border); border-radius:1.15rem; background:var(--storage-surface); box-shadow:inset 0 1px rgb(255 255 255/.035),0 14px 36px rgb(0 0 0/.1); }
+.host-storage-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:2rem; padding:1.2rem 1.3rem; }
+.host-storage-heading p { max-width:30rem; text-align:right; }
+.host-storage-list { border-top:1px solid var(--storage-border); }
+.host-storage-row { display:grid; grid-template-columns:auto minmax(0,1fr) auto auto; align-items:center; gap:1rem; padding:1.15rem 1.3rem; }
+.host-storage-row + .host-storage-row { border-top:1px solid var(--storage-border); }
+.host-storage-folder { display:grid; width:2.45rem; height:2.45rem; place-items:center; border-radius:.72rem; background:rgb(241 140 53/.1); color:#f0a25d; }
+.host-storage-folder svg { width:1.25rem; height:1.25rem; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.host-storage-copy { min-width:0; }
+.host-storage-copy h4 { color:var(--storage-text); font-size:.82rem; font-weight:650; }
+.host-storage-copy p { margin-top:.18rem; color:var(--storage-muted); font-size:.66rem; }
+.host-storage-path { display:block; max-width:100%; overflow:hidden; margin-top:.34rem; padding:0; color:var(--storage-faint); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.61rem; text-align:left; text-overflow:ellipsis; white-space:nowrap; }
+.host-storage-path:hover { color:#29f3ff; }
+.host-storage-size { min-width:6.5rem; color:var(--storage-text); font-size:1.05rem; font-weight:650; text-align:right; }
+.host-storage-actions { display:flex; gap:.5rem; }
+.storage-clean-button,.storage-reveal-button { border:1px solid var(--storage-border-strong); border-radius:.65rem; padding:.48rem .72rem; font-size:.66rem; font-weight:600; transition:160ms ease; }
+.storage-clean-button { background:rgb(10 104 255/.1); color:#65cfff; }
+.storage-reveal-button { background:var(--storage-raised); color:var(--storage-text); }
+.storage-clean-button:hover:not(:disabled),.storage-reveal-button:hover:not(:disabled) { border-color:rgb(0 229 255/.3); background:rgb(10 104 255/.14); transform:translateY(-1px); }
+.storage-clean-button:disabled,.storage-reveal-button:disabled { cursor:not-allowed; opacity:.38; }
+.storage-cleanup-backdrop { position:fixed; inset:0; z-index:80; display:grid; place-items:center; background:rgb(2 8 23/.76); padding:1.5rem; backdrop-filter:blur(14px); }
+.storage-cleanup-sheet { --storage-border:rgb(255 255 255/.075); --storage-border-strong:rgb(255 255 255/.12); --storage-raised:rgb(255 255 255/.035); --storage-text:#ededf2; --storage-muted:#858591; --storage-faint:#676775; width:min(35rem,100%); max-height:calc(100vh - 3rem); overflow-y:auto; scrollbar-width:none; border:1px solid var(--storage-border-strong); border-radius:1.2rem; background:linear-gradient(145deg,#171a27,#0e111c); color:var(--storage-text); box-shadow:0 32px 90px rgb(0 0 0/.55),inset 0 1px rgb(255 255 255/.05); }
+.storage-cleanup-sheet::-webkit-scrollbar { display:none; }
+.storage-cleanup-sheet header { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; border-bottom:1px solid var(--storage-border); padding:1.25rem 1.35rem; }
+.storage-cleanup-sheet h3 { margin-top:.3rem; font-size:1.05rem; font-weight:650; }
+.storage-cleanup-sheet header p { margin-top:.2rem; color:var(--storage-muted); font-size:.68rem; }
+.storage-cleanup-close { display:grid; width:2rem; height:2rem; place-items:center; border:1px solid var(--storage-border); border-radius:.62rem; background:var(--storage-raised); color:var(--storage-muted); font-size:1.15rem; }
+.storage-engine-note { margin:1rem 1.35rem 0; border:1px solid rgb(10 104 255/.18); border-radius:.7rem; background:rgb(10 104 255/.08); padding:.72rem .8rem; color:#79d7f5; font-size:.66rem; line-height:1.5; }
+.storage-cleanup-options { display:grid; gap:.6rem; padding:1rem 1.35rem 1.25rem; }
+.storage-cleanup-options > button { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:.75rem; border:1px solid var(--storage-border); border-radius:.82rem; background:var(--storage-raised); padding:.8rem; text-align:left; transition:160ms ease; }
+.storage-cleanup-options > button:hover:not(:disabled) { border-color:rgb(0 229 255/.3); background:rgb(10 104 255/.09); transform:translateY(-1px); }
+.storage-cleanup-options > button.selected { border-color:rgb(0 229 255/.58); background:linear-gradient(135deg,rgb(10 104 255/.15),rgb(0 229 255/.07)); box-shadow:0 0 0 1px rgb(0 229 255/.08),0 12px 28px rgb(10 104 255/.1); }
+.storage-cleanup-options > button:disabled { cursor:wait; opacity:.45; }
+.cleanup-option-icon { display:grid; width:2rem; height:2rem; place-items:center; border-radius:.6rem; background:rgb(0 229 255/.09); color:#29f3ff; }
+.storage-cleanup-options span:nth-child(2) { display:flex; min-width:0; flex-direction:column; }
+.storage-cleanup-options b { font-size:.73rem; font-weight:650; }
+.storage-cleanup-options small { margin-top:.17rem; color:var(--storage-muted); font-size:.61rem; line-height:1.4; }
+.storage-cleanup-options em { border-radius:999px; background:rgb(49 201 145/.08); padding:.22rem .45rem; color:#62dca8; font-size:.55rem; font-style:normal; white-space:nowrap; }
+.storage-cleanup-options .deep em { background:rgb(241 140 53/.09); color:#f0a25d; }
+.storage-cleanup-confirm { display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; border-top:1px solid var(--storage-border); background:rgb(10 104 255/.055); padding:1rem 1.35rem; }
+.storage-cleanup-confirm strong { font-size:.72rem; font-weight:650; }
+.storage-cleanup-confirm p { max-width:22rem; margin-top:.2rem; color:var(--storage-muted); font-size:.59rem; line-height:1.45; }
+.storage-cleanup-confirm .storage-cleanup-error { color:#ff9292; }
+.storage-cleanup-run { flex:none; border:1px solid rgb(0 229 255/.3); border-radius:.68rem; background:linear-gradient(135deg,#0a68ff,#087acb); padding:.62rem .85rem; color:#f7f9fc; font-size:.64rem; font-weight:650; box-shadow:0 9px 22px rgb(10 104 255/.2); }
+.storage-cleanup-run:hover:not(:disabled) { filter:brightness(1.08); transform:translateY(-1px); }
+.storage-cleanup-run:disabled { cursor:wait; opacity:.65; }
+.storage-cleanup-sheet footer { border-top:1px solid var(--storage-border); padding:.8rem 1.35rem; color:var(--storage-faint); font-size:.59rem; line-height:1.5; }
 .cleanup-panel { border:1px solid var(--storage-border); border-radius:1.15rem; background:var(--storage-surface); padding:1.3rem; box-shadow:inset 0 1px rgb(255 255 255/.035),0 14px 36px rgb(0 0 0/.1); }
 .cleanup-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:2rem; }
 .cleanup-heading p { max-width:32rem; text-align:right; }
@@ -3070,6 +3347,8 @@ tbody tr { transition: background 150ms ease; }
   .container-ports { grid-column:1; }
   .container-actions { grid-column:2; grid-row:2; }
   .group-actions .compose-button:nth-of-type(2), .group-actions .compose-button:nth-of-type(3) { display:none; }
+  .host-storage-row { grid-template-columns:auto minmax(0,1fr) auto; }
+  .host-storage-actions { grid-column:2/-1; justify-content:flex-end; }
 }
 
 @media (max-height: 800px) {
@@ -3105,8 +3384,13 @@ tbody tr { transition: background 150ms ease; }
   .storage-hero { align-items:flex-start; }
   .safe-badge { display:none; }
   .storage-grid,.cleanup-grid { grid-template-columns:1fr; }
-  .cleanup-heading { align-items:flex-start; flex-direction:column; gap:.35rem; }
-  .cleanup-heading p { text-align:left; }
+  .host-storage-heading,.cleanup-heading { align-items:flex-start; flex-direction:column; gap:.35rem; }
+  .host-storage-heading p,.cleanup-heading p { text-align:left; }
+  .storage-cleanup-confirm { align-items:stretch; flex-direction:column; }
+  .storage-cleanup-run { width:100%; }
+  .host-storage-row { grid-template-columns:auto minmax(0,1fr); align-items:start; }
+  .host-storage-size { grid-column:2; text-align:left; }
+  .host-storage-actions { grid-column:2; justify-content:flex-start; }
   main { padding-inline: 1rem; }
 }
 </style>

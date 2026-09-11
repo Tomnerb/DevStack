@@ -254,12 +254,23 @@ html[data-theme="light"] .storage-page {
 }
 html[data-theme="light"] .storage-hero,
 html[data-theme="light"] .storage-card,
+html[data-theme="light"] .host-storage-panel,
 html[data-theme="light"] .cleanup-panel { box-shadow:inset 0 1px white,0 14px 34px rgb(64 61 90/.075) !important; }
 html[data-theme="light"] .storage-track { background:rgb(38 39 52/.09) !important; }
 html[data-theme="light"] .safe-badge { color:#16835b; }
 html[data-theme="light"] .storage-type-icon,
 html[data-theme="light"] .cleanup-icon { color:#087a96; }
 html[data-theme="light"] .cleanup-danger .cleanup-icon { color:#bd3c3c; }
+html[data-theme="light"] .storage-cleanup-sheet {
+  --storage-border: rgb(38 39 52 / .09);
+  --storage-border-strong: rgb(38 39 52 / .14);
+  --storage-raised: rgb(53 50 68 / .035);
+  --storage-text: #292a34;
+  --storage-muted: #62636f;
+  --storage-faint: #7d7e89;
+  background: linear-gradient(145deg, #fff, #f3f5fa) !important;
+  box-shadow: 0 30px 80px rgb(48 50 70 / .22), inset 0 1px white !important;
+}
 
 html[data-theme="light"] .group-header,
 html[data-theme="light"] .container-row + .container-row,
