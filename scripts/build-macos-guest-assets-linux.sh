@@ -139,8 +139,7 @@ mkdir -p "$WORK/kata"
 if [[ -z "$KATA_BINARY" ]]; then
   mapfile -t KATA_KERNELS < <(
     tar --use-compress-program=unzstd -tf "$WORK/kata.tar.zst" \
-      | sed 's#^\./##' \
-      | sed -n '\#^opt/kata/share/kata-containers/vmlinux-[^/]*$#p'
+      | awk '/^(\.\/)?opt\/kata\/share\/kata-containers\/vmlinux-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$/ { print }'
   )
   if [[ "${#KATA_KERNELS[@]}" -eq 0 ]]; then
     echo "The Kata archive does not contain an arm64 vmlinux kernel." >&2
