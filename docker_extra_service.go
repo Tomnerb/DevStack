@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -82,12 +83,15 @@ type DockerCLIResult struct {
 // DockerMigrationPreview is read-only discovery for the first-run migration
 // assistant. It intentionally does not alter the existing Docker engine.
 type DockerMigrationPreview struct {
-	Available  bool   `json:"available"`
-	Containers int    `json:"containers"`
-	Running    int    `json:"running"`
-	Images     int    `json:"images"`
-	Volumes    int    `json:"volumes"`
-	Message    string `json:"message,omitempty"`
+	Available                bool   `json:"available"`
+	Reachable                bool   `json:"reachable"`
+	VolumeMigrationSupported bool   `json:"volumeMigrationSupported"`
+	Endpoint                 string `json:"endpoint,omitempty"`
+	Containers               int    `json:"containers"`
+	Running                  int    `json:"running"`
+	Images                   int    `json:"images"`
+	Volumes                  int    `json:"volumes"`
+	Message                  string `json:"message,omitempty"`
 }
 
 // DockerMigrationStatus is deliberately small and pollable. Image archives can
@@ -245,41 +249,106 @@ func countImportedImages(message string) int {
 }
 
 func (s *DockerService) GetDockerMigrationPreview() DockerMigrationPreview {
-	allContainers, err := runDockerCLI(8*time.Second, "", "container", "ls", "-aq")
-	if err != nil {
-		return DockerMigrationPreview{Message: err.Error()}
+	preview := DockerMigrationPreview{
+		Endpoint:                 s.dockerMigrationSourceEndpoint(),
+		VolumeMigrationSupported: runtime.GOOS == "linux",
 	}
-	running, err := runDockerCLI(8*time.Second, "", "container", "ls", "-q")
-	if err != nil {
-		return DockerMigrationPreview{Message: err.Error()}
-	}
-	images, err := runDockerCLI(8*time.Second, "", "image", "ls", "-q")
-	if err != nil {
-		return DockerMigrationPreview{Message: err.Error()}
-	}
-	volumes, err := runDockerCLI(8*time.Second, "", "volume", "ls", "-q")
-	if err != nil {
-		return DockerMigrationPreview{Message: err.Error()}
+	if preview.Endpoint == "" {
+		preview.Message = "No external Docker endpoint is configured. Select External Docker once or choose an endpoint below."
+		return preview
 	}
 
-	preview := DockerMigrationPreview{
-		Containers: countDockerList(allContainers),
-		Running:    countDockerList(running),
-		Images:     countDockerList(images),
-		Volumes:    countDockerList(volumes),
+	allContainers, err := runDockerCLIAtEndpoint(8*time.Second, "", preview.Endpoint, "container", "ls", "-aq")
+	if err != nil {
+		preview.Message = fmt.Sprintf("Docker is offline at %s. Start it to scan resources for migration.", preview.Endpoint)
+		return preview
 	}
+	preview.Reachable = true
+	running, err := runDockerCLIAtEndpoint(8*time.Second, "", preview.Endpoint, "container", "ls", "-q")
+	if err != nil {
+		preview.Message = err.Error()
+		return preview
+	}
+	images, err := runDockerCLIAtEndpoint(8*time.Second, "", preview.Endpoint, "image", "ls", "-q")
+	if err != nil {
+		preview.Message = err.Error()
+		return preview
+	}
+	volumes, err := runDockerCLIAtEndpoint(8*time.Second, "", preview.Endpoint, "volume", "ls", "-q")
+	if err != nil {
+		preview.Message = err.Error()
+		return preview
+	}
+
+	preview.Containers = countDockerList(allContainers)
+	preview.Running = countDockerList(running)
+	preview.Images = countDockerList(images)
+	preview.Volumes = countDockerList(volumes)
 	preview.Available = preview.Containers > 0 || preview.Images > 0 || preview.Volumes > 0
 	if preview.Available {
 		preview.Message = "Existing Docker resources were found. Migration is opt-in and leaves Docker unchanged until verification succeeds."
+	} else {
+		preview.Message = "Docker is connected, but it has no containers, images, or volumes to migrate."
 	}
 	return preview
+}
+
+func (s *DockerService) StartDockerMigrationSource() DockerMigrationPreview {
+	endpoint := s.dockerMigrationSourceEndpoint()
+	if endpoint == "" {
+		return s.GetDockerMigrationPreview()
+	}
+	if reachableDockerEndpoint(endpoint) {
+		return s.GetDockerMigrationPreview()
+	}
+	started, err := startExternalDockerOnRequest(endpoint)
+	if err != nil {
+		return DockerMigrationPreview{Endpoint: endpoint, Message: err.Error()}
+	}
+	if !started {
+		return DockerMigrationPreview{
+			Endpoint: endpoint,
+			Message:  fmt.Sprintf("Start the external Docker engine at %s, then scan again.", endpoint),
+		}
+	}
+	return s.GetDockerMigrationPreview()
+}
+
+func (s *DockerService) dockerMigrationSourceEndpoint() string {
+	endpoint := resolveExternalDockerEndpoint(s.ConfiguredDockerEndpoint())
+	if endpoint != "" {
+		s.SetConfiguredDockerEndpoint(endpoint)
+	}
+	return endpoint
+}
+
+func (s *DockerService) dockerMigrationSourceClient() (*client.Client, error) {
+	endpoint := s.dockerMigrationSourceEndpoint()
+	if endpoint == "" {
+		return nil, errors.New("no external Docker endpoint is configured")
+	}
+	cli, err := client.New(
+		client.WithHost(endpoint),
+		client.WithAPIVersionNegotiation(),
+		client.WithUserAgent("dockiva-migration/0.1"),
+	)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := cli.Ping(ctx, client.PingOptions{NegotiateAPIVersion: true}); err != nil {
+		_ = cli.Close()
+		return nil, fmt.Errorf("external Docker is offline at %s: %w", endpoint, err)
+	}
+	return cli, nil
 }
 
 // MigrateDockerImages copies Docker images into the Dockiva Native containerd
 // namespace one at a time. This avoids a single giant archive, gives the user
 // meaningful progress, and never modifies the source Docker store.
 func (s *DockerService) MigrateDockerImages() (DockerCLIResult, error) {
-	images, err := runDockerCLI(30*time.Second, "", "image", "ls", "--format", "{{.Repository}}:{{.Tag}}")
+	images, err := runDockerCLIAtEndpoint(30*time.Second, "", s.dockerMigrationSourceEndpoint(), "image", "ls", "--format", "{{.Repository}}:{{.Tag}}")
 	if err != nil {
 		return DockerCLIResult{}, err
 	}
@@ -332,7 +401,7 @@ func (s *DockerService) migrateSingleDockerImage(parentCtx context.Context, dock
 
 	archivePath := archive.Name()
 	exportCtx, exportCancel := context.WithTimeout(parentCtx, 10*time.Minute)
-	cmd := exec.CommandContext(exportCtx, dockerPath, "image", "save", "-o", archivePath, ref)
+	cmd := exec.CommandContext(exportCtx, dockerPath, "--host", s.dockerMigrationSourceEndpoint(), "image", "save", "-o", archivePath, ref)
 	cmd.Env = os.Environ()
 	output, runErr := cmd.CombinedOutput()
 	timedOut := exportCtx.Err() == context.DeadlineExceeded
@@ -361,7 +430,7 @@ func (s *DockerService) migrateSingleDockerImage(parentCtx context.Context, dock
 			CurrentImage:   shortMigrationImageRef(ref),
 		})
 	}
-	importErr := networkHelperImportDockerImages(importCtx, archivePath)
+	importErr := s.importDockerImagesToNative(importCtx, archivePath)
 	importCancel()
 	if importErr != nil {
 		return fmt.Errorf("import Docker image %s into Dockiva Native: %w", ref, importErr)
@@ -384,7 +453,7 @@ func validDockerImageRefs(refs []string) []string {
 // MigrateDockerVolumes copies local Docker named-volume data into Dockiva's
 // managed volume store. It never stops containers or deletes Docker volumes.
 func (s *DockerService) MigrateDockerVolumes() (DockerCLIResult, error) {
-	output, err := runDockerCLI(30*time.Second, "", "volume", "ls", "-q")
+	output, err := runDockerCLIAtEndpoint(30*time.Second, "", s.dockerMigrationSourceEndpoint(), "volume", "ls", "-q")
 	if err != nil {
 		return DockerCLIResult{}, err
 	}
@@ -403,7 +472,7 @@ func (s *DockerService) MigrateDockerVolumes() (DockerCLIResult, error) {
 		archivePath := archive.Name()
 		defer os.Remove(archivePath)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		cmd := exec.CommandContext(ctx, dockerPath, "run", "--rm", "--network", "none", "-v", volume+":/source:ro", "alpine:latest", "tar", "-C", "/source", "-cf", "-", ".")
+		cmd := exec.CommandContext(ctx, dockerPath, "--host", s.dockerMigrationSourceEndpoint(), "run", "--rm", "--network", "none", "-v", volume+":/source:ro", "alpine:latest", "tar", "-C", "/source", "-cf", "-", ".")
 		cmd.Stdout = archive
 		var stderr strings.Builder
 		cmd.Stderr = &stderr
@@ -435,7 +504,13 @@ func (s *DockerService) MigrateDockerContainers() (DockerCLIResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 
-	listResult, err := s.client.Load().ContainerList(
+	sourceClient, err := s.dockerMigrationSourceClient()
+	if err != nil {
+		return DockerCLIResult{}, err
+	}
+	defer sourceClient.Close()
+
+	listResult, err := sourceClient.ContainerList(
 		ctx,
 		client.ContainerListOptions{All: true},
 	)
@@ -549,7 +624,7 @@ func (s *DockerService) MigrateDockerContainers() (DockerCLIResult, error) {
 			continue
 		}
 
-		inspect, inspectErr := s.client.Load().ContainerInspect(
+		inspect, inspectErr := sourceClient.ContainerInspect(
 			ctx,
 			item.ID,
 			client.ContainerInspectOptions{},
@@ -1228,6 +1303,10 @@ func (s *DockerService) PruneDocker(scope string) (DockerCLIResult, error) {
 }
 
 func runDockerCLI(timeout time.Duration, dir string, args ...string) (string, error) {
+	return runDockerCLIAtEndpoint(timeout, dir, "", args...)
+}
+
+func runDockerCLIAtEndpoint(timeout time.Duration, dir string, endpoint string, args ...string) (string, error) {
 	dockerPath, err := dockerCLIPath()
 	if err != nil {
 		return "", errors.New("docker CLI was not found")
@@ -1236,7 +1315,11 @@ func runDockerCLI(timeout time.Duration, dir string, args ...string) (string, er
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, dockerPath, args...)
+	commandArgs := args
+	if strings.TrimSpace(endpoint) != "" {
+		commandArgs = append([]string{"--host", endpoint}, args...)
+	}
+	cmd := exec.CommandContext(ctx, dockerPath, commandArgs...)
 
 	if dir != "" {
 		if info, statErr := os.Stat(dir); statErr == nil && info.IsDir() {

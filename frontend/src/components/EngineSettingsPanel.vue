@@ -104,8 +104,29 @@ interface UpdateProgress {
   rate: number
 }
 
-const props = defineProps<{ platform: PlatformInfo | null }>()
-const emit = defineEmits<{ engineChanged: [] }>()
+interface DockerMigrationPreview {
+  available: boolean
+  reachable: boolean
+  volumeMigrationSupported: boolean
+  endpoint?: string
+  containers: number
+  running: number
+  images: number
+  volumes: number
+  message?: string
+}
+
+const props = defineProps<{
+  platform: PlatformInfo | null
+  migration: DockerMigrationPreview | null
+  migrationSourceBusy: boolean
+}>()
+const emit = defineEmits<{
+  engineChanged: []
+  reviewMigration: []
+  startMigrationSource: []
+  scanMigrationSource: []
+}>()
 
 const settings = ref<AppSettings>({
   settingsVersion: 2,
@@ -507,6 +528,65 @@ onBeforeUnmount(() => {
       <div v-if="error" class="mt-4 whitespace-pre-wrap rounded-lg border border-red-900 bg-red-950/30 p-4 text-sm text-red-300">{{ error }}</div>
     </section>
 
+    <section v-if="settings.engineBackend !== 'external'" class="panel migration-panel p-6">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-2">
+            <h3 class="font-semibold">Migrate from Docker</h3>
+            <span
+              class="migration-source-badge"
+              :class="props.migration?.reachable ? 'online' : 'offline'"
+            >
+              {{ props.migration?.reachable ? 'Docker connected' : 'Docker offline' }}
+            </span>
+          </div>
+          <p class="mt-1 text-sm text-zinc-500">
+            Copy containers and images into Dockiva Native without deleting anything from Docker.
+          </p>
+          <p v-if="props.migration?.endpoint" class="migration-endpoint mt-2" :title="props.migration.endpoint">
+            {{ props.migration.endpoint }}
+          </p>
+        </div>
+
+        <button
+          v-if="!props.migration?.reachable"
+          class="primary-button"
+          :disabled="props.migrationSourceBusy"
+          @click="emit('startMigrationSource')"
+        >
+          {{ props.migrationSourceBusy ? 'Starting Docker…' : 'Start Docker & Scan' }}
+        </button>
+        <button
+          v-else-if="props.migration.available"
+          class="primary-button"
+          :disabled="props.migrationSourceBusy"
+          @click="emit('reviewMigration')"
+        >
+          Review Migration
+        </button>
+        <button
+          v-else
+          class="toolbar-button"
+          :disabled="props.migrationSourceBusy"
+          @click="emit('scanMigrationSource')"
+        >
+          {{ props.migrationSourceBusy ? 'Scanning…' : 'Scan Again' }}
+        </button>
+      </div>
+
+      <div v-if="props.migration?.reachable" class="migration-resource-grid mt-5">
+        <div><strong>{{ props.migration.containers }}</strong><span>Containers</span></div>
+        <div><strong>{{ props.migration.images }}</strong><span>Images</span></div>
+        <div><strong>{{ props.migration.volumes }}</strong><span>Volumes</span></div>
+        <div><strong>{{ props.migration.running }}</strong><span>Running</span></div>
+      </div>
+
+      <p class="migration-message mt-4">{{ props.migration?.message || 'Scanning the saved external Docker endpoint…' }}</p>
+      <p v-if="props.migration?.volumes && !props.migration.volumeMigrationSupported" class="migration-note mt-2">
+        Image and stopped-container migration are available here. Named-volume transfer currently requires Linux.
+      </p>
+    </section>
+
     <section v-if="runtimeOverview" class="panel p-6">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -758,6 +838,19 @@ onBeforeUnmount(() => {
 .status-cell strong { color:var(--settings-muted); }
 .runtime-option { background:transparent; transition:160ms ease; }
 .runtime-option:hover { border-color:rgb(0 229 255/.2)!important; background:var(--settings-surface); }
+.migration-panel { background:linear-gradient(135deg,rgb(10 104 255/.1),rgb(0 229 255/.025) 52%,rgb(19 20 29/.88))!important; }
+.migration-source-badge { border:1px solid var(--settings-border); border-radius:999px; padding:.2rem .5rem; font-size:.62rem; font-weight:600; }
+.migration-source-badge.online { border-color:rgb(52 211 153/.24); background:rgb(16 185 129/.09); color:#6ee7b7; }
+.migration-source-badge.offline { border-color:rgb(251 191 36/.2); background:rgb(245 158 11/.08); color:#fcd34d; }
+.migration-endpoint { max-width:42rem; overflow:hidden; color:var(--settings-faint); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.68rem; text-overflow:ellipsis; white-space:nowrap; }
+.migration-resource-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.65rem; }
+.migration-resource-grid div { border:1px solid var(--settings-border); border-radius:.75rem; background:var(--settings-surface); padding:.85rem; }
+.migration-resource-grid strong,.migration-resource-grid span { display:block; }
+.migration-resource-grid strong { color:var(--settings-text); font-size:1.1rem; }
+.migration-resource-grid span { margin-top:.2rem; color:var(--settings-faint); font-size:.68rem; }
+.migration-message { color:var(--settings-muted); font-size:.76rem; line-height:1.5; }
+.migration-note { color:#fcd34d; font-size:.7rem; line-height:1.5; }
+@media (max-width:700px) { .migration-resource-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 .settings-list { overflow:hidden; background:var(--settings-surface); }
 .setting-row { display:flex; cursor:pointer; align-items:center; justify-content:space-between; gap:1rem; padding:1rem 1.1rem; font-size:.85rem; transition:background 150ms ease; }
 .setting-row + .setting-row { border-color:var(--settings-border)!important; }

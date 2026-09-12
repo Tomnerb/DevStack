@@ -189,6 +189,9 @@ interface RuntimePortMapping {
 
 interface DockerMigrationPreview {
   available: boolean
+  reachable: boolean
+  volumeMigrationSupported: boolean
+  endpoint?: string
   containers: number
   running: number
   images: number
@@ -275,6 +278,7 @@ const runtimeOperationBusy = ref('')
 const dockerMigrationPreview = ref<DockerMigrationPreview | null>(null)
 const migrationPromptOpen = ref(false)
 const migrationBusy = ref(false)
+const migrationSourceBusy = ref(false)
 const volumeMigrationBusy = ref(false)
 const volumeMigrationStatus = ref<DockerMigrationStatus>({ state: 'idle', message: '' })
 const migrationStatus = ref<DockerMigrationStatus>({ state: 'idle', message: '' })
@@ -600,12 +604,45 @@ async function loadContainers() {
   }
 }
 
-async function loadDockerMigrationPreview() {
+async function loadDockerMigrationPreview(openPrompt = false) {
   const preview = await Call.ByName(
     'main.DockerService.GetDockerMigrationPreview',
   ) as DockerMigrationPreview
   dockerMigrationPreview.value = preview
-  migrationPromptOpen.value = preview.available
+  migrationCheck.value = preview
+  if (openPrompt && preview.available) migrationPromptOpen.value = true
+}
+
+async function startDockerMigrationSource() {
+  if (migrationSourceBusy.value) return
+  migrationSourceBusy.value = true
+  clearMessages()
+  try {
+    const preview = await Call.ByName(
+      'main.DockerService.StartDockerMigrationSource',
+    ) as DockerMigrationPreview
+    dockerMigrationPreview.value = preview
+    migrationCheck.value = preview
+    if (preview.available) migrationPromptOpen.value = true
+    else if (!preview.reachable && preview.message) showError(preview.message)
+  } catch (err) {
+    showError(err)
+  } finally {
+    migrationSourceBusy.value = false
+  }
+}
+
+async function scanDockerMigrationSource() {
+  if (migrationSourceBusy.value) return
+  migrationSourceBusy.value = true
+  clearMessages()
+  try {
+    await loadDockerMigrationPreview(true)
+  } catch (err) {
+    showError(err)
+  } finally {
+    migrationSourceBusy.value = false
+  }
 }
 
 function dismissMigrationPrompt() {
@@ -775,9 +812,7 @@ async function runSmartCheck() {
   const animationFloor = new Promise((resolve) => setTimeout(resolve, 1400))
 
   try {
-    const checks = await Promise.allSettled([loadStatus(), loadRuntimeOverview(), loadPlatformInfo(), loadDockerMigrationPreview()])
-    const migrationResult = checks[3]
-    if (migrationResult.status === 'fulfilled') migrationCheck.value = dockerMigrationPreview.value
+    await Promise.allSettled([loadStatus(), loadRuntimeOverview(), loadPlatformInfo(), loadDockerMigrationPreview()])
     if (runtimeConnected.value) {
       await loadContainers()
       if (isDockerRuntime.value) {
@@ -2595,7 +2630,12 @@ onBeforeUnmount(() => {
         <EngineSettingsPanel
           v-else-if="activeTab === 'engine'"
           :platform="platformInfo"
+          :migration="dockerMigrationPreview"
+          :migration-source-busy="migrationSourceBusy"
           @engine-changed="loadCurrentTab"
+          @review-migration="migrationPromptOpen = true"
+          @start-migration-source="startDockerMigrationSource"
+          @scan-migration-source="scanDockerMigrationSource"
         />
       </main>
     </div>
@@ -2755,7 +2795,7 @@ onBeforeUnmount(() => {
           <button class="toolbar-button" @click="dismissMigrationPrompt">Not now</button>
           <button class="toolbar-button" :disabled="migrationBusy || !dockerMigrationPreview.containers" @click="migrateDockerContainers">{{ migrationBusy ? 'Migrating containers…' : 'Migrate containers now' }}</button>
           <button class="toolbar-button" :disabled="migrationBusy || !dockerMigrationPreview.images" @click="migrateDockerImages">{{ migrationBusy ? 'Migrating images…' : 'Migrate images now' }}</button>
-          <button class="toolbar-button" :disabled="volumeMigrationBusy || !dockerMigrationPreview.volumes" @click="migrateDockerVolumes">{{ volumeMigrationBusy ? 'Migrating volumes…' : 'Migrate volumes now' }}</button>
+          <button class="toolbar-button" :disabled="volumeMigrationBusy || !dockerMigrationPreview.volumes || !dockerMigrationPreview.volumeMigrationSupported" @click="migrateDockerVolumes">{{ volumeMigrationBusy ? 'Migrating volumes…' : dockerMigrationPreview.volumeMigrationSupported ? 'Migrate volumes now' : 'Volumes: Linux only' }}</button>
           <button class="primary-button" @click="activeTab = 'engine'; migrationPromptOpen = false">Review migration</button>
         </div>
       </section>

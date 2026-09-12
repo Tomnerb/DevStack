@@ -4,8 +4,45 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+	"time"
 )
+
+func TestRunDockerCLIAtEndpointPinsMigrationSource(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is Unix-only")
+	}
+
+	directory := t.TempDir()
+	docker := filepath.Join(directory, "docker")
+	if err := os.WriteFile(docker, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", directory)
+
+	output, err := runDockerCLIAtEndpoint(
+		time.Second,
+		"",
+		"unix:///external/docker.sock",
+		"image",
+		"ls",
+		"-q",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Join([]string{
+		"--host",
+		"unix:///external/docker.sock",
+		"image",
+		"ls",
+		"-q",
+	}, "\n")
+	if output != want {
+		t.Fatalf("docker arguments = %q, want %q", output, want)
+	}
+}
 
 func TestResolveExternalDockerEndpointReplacesMissingLocalSocket(t *testing.T) {
 	if runtime.GOOS == "windows" {

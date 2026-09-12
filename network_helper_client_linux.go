@@ -108,6 +108,10 @@ func networkHelperImportDockerImages(ctx context.Context, archive string) error 
 	return nil
 }
 
+func (s *DockerService) importDockerImagesToNative(ctx context.Context, archive string) error {
+	return networkHelperImportDockerImages(ctx, archive)
+}
+
 func networkHelperCopyDockerVolume(ctx context.Context, name, source string) error {
 	return networkHelperRequest(ctx, http.MethodPost, "/v1/migration/volumes/copy", map[string]string{
 		"name": name, "source": source,

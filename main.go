@@ -31,9 +31,16 @@ func main() {
 	settings := appService.Snapshot()
 
 	if settings.DockerEndpoint != "" {
+		resolvedEndpoint := resolveExternalDockerEndpoint(settings.DockerEndpoint)
 		dockerService.SetConfiguredDockerEndpoint(
-			settings.DockerEndpoint,
+			resolvedEndpoint,
 		)
+		if resolvedEndpoint != settings.DockerEndpoint {
+			settings.DockerEndpoint = resolvedEndpoint
+			if err := appService.UpdateSettings(settings); err != nil {
+				log.Printf("could not persist repaired Docker endpoint: %v", err)
+			}
+		}
 	} else {
 		settings.DockerEndpoint =
 			dockerService.ConfiguredDockerEndpoint()
