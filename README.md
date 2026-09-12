@@ -2,6 +2,14 @@
 
 DevStack is a lightweight, cross-platform desktop environment for managing local containers. It combines a Go and Wails core with a Vue interface and supports both platform-native runtimes and existing Docker endpoints.
 
+DevStack is open source under the [Apache License 2.0](LICENSE). Contributions
+are welcome; read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull
+request. Report suspected vulnerabilities privately according to
+[SECURITY.md](SECURITY.md).
+
+Every pull request runs the frontend build and Go test suite. Dependabot checks
+Go, npm, and GitHub Actions dependencies weekly.
+
 > [!IMPORTANT]
 > DevStack is under active development. Native macOS and Windows engines still require target-platform validation before production use.
 
@@ -16,6 +24,35 @@ DevStack is a lightweight, cross-platform desktop environment for managing local
 - Dynamic tray and menu-bar controls with event-driven refresh
 - Explicit runtime selection with stable endpoint identity
 - Optional external Docker support without silently switching engines
+
+## DevStack compared with OrbStack and Docker Desktop
+
+DevStack is not trying to copy every feature in either product. Its current
+advantage is a focused, inspectable container control plane that can use a
+DevStack-managed runtime or an existing Docker/Moby endpoint without silently
+changing which engine owns your data.
+
+| Capability | DevStack | OrbStack | Docker Desktop |
+| --- | --- | --- | --- |
+| Host platforms | macOS, Linux, and Windows; native-backend maturity varies | Focused on macOS | macOS, Linux, and Windows |
+| Runtime choice | Explicit DevStack Native or saved external endpoint | Integrated Docker-compatible engine and Linux machines | Bundled Docker Engine with platform VM/WSL integration |
+| Container UI | Lifecycle, Compose projects, logs, terminal, inspect, stats, images, volumes, and networks | Containers, Compose, Kubernetes, Linux machines, and host file access | Containers, images, volumes, builds, logs, Kubernetes, Docker Hub, and Extensions |
+| Storage workflow | Reviews container storage folders and offers scoped build-cache, unused-resource, and deep-clean choices | Dynamic disk plus container/image/volume file access and Docker Desktop migration | Image/volume cleanup, disk-image controls, and Resource Saver |
+| Engine identity | Keeps native and external stores separate and shows the active endpoint | Supports Docker contexts and side-by-side migration | Uses Docker Desktop's managed engine/context |
+| Kubernetes | Not implemented | Included | Included |
+| Product maturity | Active development; native engines still being validated | Established macOS product | Established cross-platform product and ecosystem |
+
+Choose DevStack when explicit engine ownership, a compact container-focused UI,
+and a cross-platform native-runtime direction matter more than an all-in-one
+Kubernetes, registry, AI, extensions, or general Linux-machine suite. Choose
+OrbStack when you want its highly optimized macOS container and Linux-machine
+experience today. Choose Docker Desktop when you need Docker's complete,
+supported ecosystem and organization features.
+
+Comparison references: [OrbStack overview](https://docs.orbstack.dev/),
+[OrbStack migration and contexts](https://docs.orbstack.dev/install),
+[Docker Desktop overview](https://docs.docker.com/desktop/), and
+[Docker Desktop dashboard](https://docs.docker.com/desktop/use-desktop/).
 
 ## Runtime architecture
 
@@ -135,14 +172,75 @@ DEVSTACK_BUILD_NUMBER=42 ./scripts/build-macos.sh arm64 \
 The Engine Settings page shows the installed version and includes **Check for
 Updates**. DevStack reads the latest public release from
 `Tomnerb/DevStack` and compares its `vX.Y.Z` tag with the installed version. If
-an update exists, DevStack opens the verified GitHub release page. It does not
-silently replace the application; public installers must remain signed and, on
-macOS, notarized.
+an update exists, **Update & Restart** downloads the matching archive inside
+the app, verifies it against the release's `SHA256SUMS`, stages the replacement,
+quits DevStack, atomically replaces the installed app, and launches the new
+version. The original installer remains available as a manual fallback.
 
 For a release, update `VERSION`, commit it, build the signed installers, then
-publish a GitHub release with the matching tag, such as `v0.2.0`. The macOS
-release output is versioned as
-`dist/macos-ARCH/DevStack-VERSION-macOS-ARCH.dmg`.
+publish a GitHub release with the matching tag, such as `v0.2.0`. A macOS
+release build produces all three files needed for distribution:
+
+```text
+dist/macos-ARCH/DevStack-VERSION-macOS-ARCH.dmg
+dist/macos-ARCH/DevStack-VERSION-darwin-ARCH.zip
+dist/macos-ARCH/SHA256SUMS
+```
+
+Upload the `.dmg`, updater `.zip`, and `SHA256SUMS` to the same GitHub Release.
+The `darwin` and architecture tokens in the updater archive name are required
+so DevStack selects the correct asset. Never publish an updater archive without
+its matching checksum file. The archive contains the already signed, notarized,
+and stapled `DevStack.app`; updating `VERSION` therefore requires rebuilding and
+signing again.
+
+### Automated GitHub release
+
+The [release workflow](.github/workflows/release.yml) runs when a stable
+`vX.Y.Z` tag is pushed. It verifies that the tag matches `VERSION`, runs the
+frontend and Go tests, builds the macOS native guest, produces signed macOS and
+Windows releases plus the Linux updater archive, creates one combined
+`SHA256SUMS`, and publishes the GitHub Release. It can also be rerun manually
+from **Actions → Release → Run workflow** with an existing tag.
+The current automated targets are macOS arm64, Windows amd64, and Linux amd64.
+
+Configure these GitHub Actions repository secrets before publishing:
+
+| Secret | Value |
+| --- | --- |
+| `MACOS_CERTIFICATE` | Base64-encoded Developer ID Application `.p12` |
+| `MACOS_CERTIFICATE_PASSWORD` | Password used when exporting the `.p12` |
+| `MACOS_SIGN_IDENTITY` | Full `Developer ID Application: … (TEAM_ID)` identity |
+| `APPLE_ID` | Apple Account used for notarization |
+| `APPLE_TEAM_ID` | Apple Developer team ID |
+| `APPLE_APP_PASSWORD` | App-specific password used by `notarytool` |
+| `WINDOWS_CERTIFICATE` | Base64-encoded Authenticode `.pfx` |
+| `WINDOWS_CERTIFICATE_PASSWORD` | Password for the `.pfx` |
+
+Create GitHub environments named `release-macos`, `release-windows`, and
+`release-publish`. Store platform signing secrets in their matching environment
+instead of as unrestricted repository secrets, require approval for release
+environments, protect `main` and release tags, and enable private vulnerability
+reporting under **Settings → Security**. The workflow pins third-party actions
+to reviewed commit SHAs so a mutable action tag cannot change release code.
+
+Then publish a release by changing and committing `VERSION` before creating the
+matching tag:
+
+```bash
+git add VERSION
+git commit -m "chore(release): prepare v0.2.0"
+git push origin main
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The release is published only after every platform job succeeds. Windows uses
+a per-user installer under `%LOCALAPPDATA%` so the in-app updater can replace
+the signed executable without an administrator prompt. Linux self-update works
+when the extracted `devstack` binary is installed in a user-writable location,
+such as `~/.local/bin`; system package upgrades should continue through the
+system package manager.
 
 ### macOS
 
