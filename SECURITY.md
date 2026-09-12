@@ -24,8 +24,10 @@ time for a fix to be prepared and distributed before publishing details.
 ## Release integrity
 
 Official releases are published through the repository's release workflow.
-macOS installers are platform-signed and notarized. Windows artifacts are
-Authenticode-signed when release credentials are configured and otherwise are
-published as explicitly documented unsigned builds. Automatic-update archives
+macOS installers are Developer ID-signed and notarized when all Apple release
+credentials are configured and otherwise are published as explicitly documented
+ad-hoc-signed builds. Windows artifacts are Authenticode-signed when release
+credentials are configured and otherwise are published as explicitly documented
+unsigned builds. Automatic-update archives
 must have a matching entry in the release's `SHA256SUMS`; DevStack rejects an
 update when that checksum is missing or invalid.

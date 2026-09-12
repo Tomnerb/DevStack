@@ -190,25 +190,27 @@ dist/macos-ARCH/SHA256SUMS
 Upload the `.dmg`, updater `.zip`, and `SHA256SUMS` to the same GitHub Release.
 The `darwin` and architecture tokens in the updater archive name are required
 so DevStack selects the correct asset. Never publish an updater archive without
-its matching checksum file. The archive contains the already signed, notarized,
-and stapled `DevStack.app`; updating `VERSION` therefore requires rebuilding and
-signing again.
+its matching checksum file. When Apple credentials are configured, the archive
+contains the signed, notarized, and stapled `DevStack.app`. An unsigned release
+instead contains an ad-hoc-signed app and may be blocked by Gatekeeper until the
+user explicitly allows it. Updating `VERSION` always requires rebuilding the
+release artifacts.
 
 ### Automated GitHub release
 
 The [release workflow](.github/workflows/release.yml) runs when a stable
 `vX.Y.Z` tag is pushed. It verifies that the tag matches `VERSION`, runs the
-frontend and Go tests, builds the macOS native guest, produces a signed macOS
-release, a signed-or-unsigned Windows release, and the Linux updater archive,
+frontend and Go tests, builds the macOS native guest, produces signed-or-unsigned
+macOS and Windows releases, and the Linux updater archive,
 creates one combined `SHA256SUMS`, and publishes the GitHub Release. It can also be rerun manually
 from **Actions → Release → Run workflow** with an existing tag.
 The current automated targets are macOS arm64, Windows amd64, and Linux amd64.
 
-Configure these GitHub Actions environment secrets before publishing:
+Configure these optional GitHub Actions environment secrets to sign releases:
 
 | Secret | Value |
 | --- | --- |
-| `MACOS_CERTIFICATE` | Base64-encoded Developer ID Application `.p12` |
+| `MACOS_CERTIFICATE` | Optional: base64-encoded Developer ID Application `.p12` |
 | `MACOS_CERTIFICATE_PASSWORD` | Password used when exporting the `.p12` |
 | `MACOS_SIGN_IDENTITY` | Full `Developer ID Application: … (TEAM_ID)` identity |
 | `APPLE_ID` | Apple Account used for notarization |
@@ -236,6 +238,11 @@ git push origin main
 git tag v0.2.0
 git push origin v0.2.0
 ```
+
+The six Apple secrets must either all be configured or all be absent. Without
+them, the workflow publishes an ad-hoc-signed macOS app and unsigned DMG; the
+updater still verifies `SHA256SUMS`, but Gatekeeper may block first launch. Add
+all six secrets later to enable Developer ID signing and notarization.
 
 The two Windows secrets are optional, but they must either both be configured
 or both be absent. Without them, the workflow publishes an unsigned executable
@@ -319,10 +326,18 @@ hdiutil verify bin/devstack.dmg
 open bin/devstack.dmg
 ```
 
-Development bundles are ad-hoc signed. This is suitable for local testing, but a
-downloadable release must use an Apple Developer ID Application certificate,
-hardened runtime, notarization, and stapling. Sign the nested VMM helper with its
-Virtualization entitlement before signing the outer application and DMG.
+Development and unsigned-release bundles are ad-hoc signed. Public distribution
+is smoother and establishes publisher identity when an Apple Developer ID
+Application certificate, hardened runtime, notarization, and stapling are used.
+Without them, clearly label the release unsigned and expect Gatekeeper warnings.
+
+Create an unsigned DMG and updater archive with:
+
+```bash
+./scripts/build-macos.sh arm64 \
+  --guest-assets ./macos-guest \
+  --unsigned-release
+```
 
 #### Create a signed and notarized release DMG
 

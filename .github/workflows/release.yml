@@ -100,7 +100,7 @@ jobs:
           retention-days: 2
 
   macos:
-    name: Signed macOS arm64 release
+    name: macOS arm64 release
     needs: macos-guest
     runs-on: macos-14
     environment: release-macos
@@ -133,7 +133,8 @@ jobs:
           go install github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      - name: Import Apple signing certificate
+      - name: Configure optional Apple signing credentials
+        id: macos_signing
         shell: bash
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
@@ -144,12 +145,21 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           set -euo pipefail
-          for name in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD MACOS_SIGN_IDENTITY APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "Required GitHub Actions secret is missing: $name" >&2
-              exit 1
-            fi
+          names=(MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD MACOS_SIGN_IDENTITY APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD)
+          configured=0
+          for name in "${names[@]}"; do
+            [[ -n "${!name:-}" ]] && configured=$((configured + 1))
           done
+          if [[ "$configured" -ne 0 && "$configured" -ne "${#names[@]}" ]]; then
+            echo "Configure all six Apple signing secrets, or leave all six unset for an unsigned macOS release." >&2
+            exit 1
+          fi
+          if [[ "$configured" -eq 0 ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Apple signing credentials are not configured. Publishing unsigned macOS artifacts."
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
 
           certificate_path="$RUNNER_TEMP/devstack-signing.p12"
           keychain_path="$RUNNER_TEMP/devstack-signing.keychain-db"
@@ -169,19 +179,26 @@ jobs:
             --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_PASSWORD"
 
-      - name: Build, sign, notarize, and package
+      - name: Build and package
         shell: bash
         env:
           MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
         run: |
           set -euo pipefail
-          ./scripts/build-macos.sh arm64 \
-            --guest-assets ./macos-guest \
-            --release \
-            --sign-identity "$MACOS_SIGN_IDENTITY" \
-            --notary-profile devstack-ci
+          if [[ "${{ steps.macos_signing.outputs.enabled }}" == "true" ]]; then
+            ./scripts/build-macos.sh arm64 \
+              --guest-assets ./macos-guest \
+              --release \
+              --sign-identity "$MACOS_SIGN_IDENTITY" \
+              --notary-profile devstack-ci
+          else
+            ./scripts/build-macos.sh arm64 \
+              --guest-assets ./macos-guest \
+              --unsigned-release
+          fi
 
       - name: Verify signed outputs
+        if: steps.macos_signing.outputs.enabled == 'true'
         shell: bash
         run: |
           set -euo pipefail

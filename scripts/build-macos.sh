@@ -8,6 +8,7 @@ GUEST_ASSETS=""
 INSTALL=false
 EXTERNAL_ONLY=false
 RELEASE=false
+UNSIGNED_RELEASE=false
 SIGN_IDENTITY="${DEVSTACK_SIGN_IDENTITY:-}"
 NOTARY_PROFILE="${DEVSTACK_NOTARY_PROFILE:-}"
 RELEASE_TEMP=""
@@ -31,6 +32,8 @@ Options:
   --install           Install the completed bundle to ~/Applications/DevStack.app.
   --external-only     Build without the native VMM helper and Linux guest assets.
   --release           Create a Developer ID-signed, notarized, and stapled DMG.
+  --unsigned-release  Create an ad-hoc-signed DMG and updater archive.
+                      macOS may block it until the user explicitly allows it.
   --sign-identity ID  Developer ID Application identity used by codesign.
                       May also be set with DEVSTACK_SIGN_IDENTITY.
   --notary-profile ID Keychain profile created by notarytool store-credentials.
@@ -62,6 +65,10 @@ while [[ $# -gt 0 ]]; do
       RELEASE=true
       shift
       ;;
+    --unsigned-release)
+      UNSIGNED_RELEASE=true
+      shift
+      ;;
     --sign-identity)
       [[ $# -ge 2 ]] || { echo "--sign-identity requires an identity" >&2; exit 2; }
       SIGN_IDENTITY="$2"
@@ -83,6 +90,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$RELEASE" == true && "$UNSIGNED_RELEASE" == true ]]; then
+  echo "--release and --unsigned-release cannot be used together." >&2
+  exit 2
+fi
 
 if [[ "$RELEASE" == true ]]; then
   if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -248,7 +260,7 @@ if [[ "$INSTALL" == true ]]; then
   echo "Installed: $INSTALL_APP"
 fi
 
-if [[ "$RELEASE" == true ]]; then
+if [[ "$RELEASE" == true || "$UNSIGNED_RELEASE" == true ]]; then
   echo "Creating release DMG..."
   wails3 task darwin:create:dmg
   RELEASE_DMG="bin/devstack.dmg"
@@ -257,13 +269,15 @@ if [[ "$RELEASE" == true ]]; then
     exit 1
   fi
 
-  codesign --force --timestamp --sign "$SIGN_IDENTITY" "$RELEASE_DMG"
-  codesign --verify --verbose=2 "$RELEASE_DMG"
-  xcrun notarytool submit "$RELEASE_DMG" \
-    --keychain-profile "$NOTARY_PROFILE" \
-    --wait
-  xcrun stapler staple "$RELEASE_DMG"
-  xcrun stapler validate "$RELEASE_DMG"
+  if [[ "$RELEASE" == true ]]; then
+    codesign --force --timestamp --sign "$SIGN_IDENTITY" "$RELEASE_DMG"
+    codesign --verify --verbose=2 "$RELEASE_DMG"
+    xcrun notarytool submit "$RELEASE_DMG" \
+      --keychain-profile "$NOTARY_PROFILE" \
+      --wait
+    xcrun stapler staple "$RELEASE_DMG"
+    xcrun stapler validate "$RELEASE_DMG"
+  fi
   VERSIONED_DMG="$DIST_DIR/DevStack-$APP_VERSION-macOS-$ARCH.dmg"
   cp -f "$RELEASE_DMG" "$VERSIONED_DMG"
 
@@ -284,11 +298,15 @@ if [[ "$EXTERNAL_ONLY" == false ]]; then
 else
   echo "External Docker-only build; native VM assets were not included."
 fi
-if [[ "$RELEASE" == true ]]; then
+if [[ "$RELEASE" == true || "$UNSIGNED_RELEASE" == true ]]; then
   echo "Release DMG: $VERSIONED_DMG"
   echo "Automatic update: $UPDATE_ARCHIVE"
   echo "Update checksum: $DIST_DIR/SHA256SUMS"
-  echo "Developer ID signing, notarization, and stapling completed."
+  if [[ "$RELEASE" == true ]]; then
+    echo "Developer ID signing, notarization, and stapling completed."
+  else
+    echo "Unsigned release created with ad-hoc application signatures."
+  fi
 else
   echo "This development bundle is ad-hoc signed. Use --release for public distribution."
 fi
