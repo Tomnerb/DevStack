@@ -3,6 +3,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 const (
 	dockivaVMMGuestPort       = 10250
 	dockivaVMMDockerGuestPort = 10251
+	maxBundledGuestDiskSize   = 8 << 30
 )
 
 type darwinEngineBackend struct{}
@@ -69,7 +71,7 @@ func (backend darwinEngineBackend) Status(
 	bundledGuest := bundledGuestDir()
 	bundledAssetsAvailable := bundledGuest != "" &&
 		fileExists(filepath.Join(bundledGuest, "vmlinux")) &&
-		fileExists(filepath.Join(bundledGuest, "rootfs.ext4"))
+		bundledGuestDiskAvailable(bundledGuest)
 
 	if fileExists(kernel) && fileExists(disk) || bundledAssetsAvailable {
 		status.EngineInstalled = true
@@ -448,6 +450,11 @@ func bundledGuestDir() string {
 	))
 }
 
+func bundledGuestDiskAvailable(directory string) bool {
+	return fileExists(filepath.Join(directory, "rootfs.ext4")) ||
+		fileExists(filepath.Join(directory, "rootfs.ext4.gz"))
+}
+
 // stageBundledGuestAssets copies immutable assets out of the signed app bundle
 // before first use. The guest rootfs is writable, so running it directly from
 // Contents/Resources would invalidate the bundle and may fail on read-only
@@ -467,7 +474,7 @@ func stageBundledGuestAssets() error {
 	source := bundledGuestDir()
 	if source == "" ||
 		!fileExists(filepath.Join(source, "vmlinux")) ||
-		!fileExists(filepath.Join(source, "rootfs.ext4")) {
+		!bundledGuestDiskAvailable(source) {
 		return nil
 	}
 
@@ -475,7 +482,7 @@ func stageBundledGuestAssets() error {
 		return err
 	}
 
-	for _, name := range []string{"vmlinux", "rootfs.ext4", "manifest.txt"} {
+	for _, name := range []string{"vmlinux", "manifest.txt"} {
 		sourcePath := filepath.Join(source, name)
 		destinationPath := filepath.Join(destination, name)
 		if !fileExists(sourcePath) || fileExists(destinationPath) {
@@ -486,7 +493,55 @@ func stageBundledGuestAssets() error {
 		}
 	}
 
+	if !fileExists(diskDestination) {
+		compressedDisk := filepath.Join(source, "rootfs.ext4.gz")
+		if fileExists(compressedDisk) {
+			if err := decompressGzipFileAtomically(compressedDisk, diskDestination); err != nil {
+				return err
+			}
+		} else if err := copyFileAtomically(filepath.Join(source, "rootfs.ext4"), diskDestination); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+func decompressGzipFileAtomically(source string, destination string) error {
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+
+	compressed, err := gzip.NewReader(input)
+	if err != nil {
+		return fmt.Errorf("open compressed guest disk: %w", err)
+	}
+	defer compressed.Close()
+
+	temporary, err := os.CreateTemp(filepath.Dir(destination), ".dockiva-asset-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+
+	written, copyErr := io.Copy(temporary, io.LimitReader(compressed, maxBundledGuestDiskSize+1))
+	closeErr := temporary.Close()
+	if copyErr != nil {
+		return fmt.Errorf("decompress guest disk: %w", copyErr)
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if written > maxBundledGuestDiskSize {
+		return fmt.Errorf("compressed guest disk exceeds %d bytes", maxBundledGuestDiskSize)
+	}
+	if err := os.Chmod(temporaryPath, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, destination)
 }
 
 func copyFileAtomically(source string, destination string) error {

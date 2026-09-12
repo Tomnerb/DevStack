@@ -203,7 +203,12 @@ if [[ "$EXTERNAL_ONLY" == false ]]; then
   cp -f native/macos/DockivaVMM/.build/release/dockiva-vmm "$RESOURCES/dockiva-vmm"
   chmod 0755 "$RESOURCES/dockiva-vmm"
   cp -f "$GUEST_ASSETS/vmlinux" "$RESOURCES/guest/vmlinux"
-  cp -f "$GUEST_ASSETS/rootfs.ext4" "$RESOURCES/guest/rootfs.ext4"
+  # Keep the sparse 2 GiB disk compressed inside the app. Wails' updater has
+  # a 2 GiB total extraction cap, so bundling rootfs.ext4 directly makes an
+  # otherwise small updater ZIP exceed that cap. Dockiva expands it once into
+  # Application Support when the native engine is first started.
+  gzip -c "$GUEST_ASSETS/rootfs.ext4" > "$RESOURCES/guest/rootfs.ext4.gz"
+  chmod 0644 "$RESOURCES/guest/rootfs.ext4.gz"
   if [[ -f "$GUEST_ASSETS/manifest.txt" ]]; then
     cp -f "$GUEST_ASSETS/manifest.txt" "$RESOURCES/guest/manifest.txt"
   fi
@@ -284,6 +289,15 @@ if [[ "$RELEASE" == true || "$UNSIGNED_RELEASE" == true ]]; then
   UPDATE_ARCHIVE="$DIST_DIR/Dockiva-$APP_VERSION-darwin-$ARCH.zip"
   rm -f -- "$UPDATE_ARCHIVE"
   ditto -c -k --keepParent "$DIST_APP" "$UPDATE_ARCHIVE"
+  UPDATE_UNCOMPRESSED_BYTES="$(zipinfo -t "$UPDATE_ARCHIVE" | awk '{print $3}')"
+  if [[ ! "$UPDATE_UNCOMPRESSED_BYTES" =~ ^[0-9]+$ ]]; then
+    echo "Could not determine updater archive's uncompressed size." >&2
+    exit 1
+  fi
+  if (( UPDATE_UNCOMPRESSED_BYTES > 2147483648 )); then
+    echo "Updater archive exceeds Wails' 2 GiB extraction limit: $UPDATE_UNCOMPRESSED_BYTES bytes" >&2
+    exit 1
+  fi
   (
     cd "$DIST_DIR"
     shasum -a 256 "$(basename "$UPDATE_ARCHIVE")" > SHA256SUMS
