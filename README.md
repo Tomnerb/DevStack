@@ -455,4 +455,5 @@ engine_*.go      Platform engine lifecycle implementations
 runtime_*.go     Runtime-neutral Docker/containerd adapters
 ```
 
-For architectural decisions and known limitations, see [DEVSTACK_CODEX_HANDOFF.md](DEVSTACK_CODEX_HANDOFF.md). Milestone-specific implementation notes are retained in the `README-MILESTONE*.md` files.
+Milestone-specific implementation decisions and known limitations are retained
+in the `README-MILESTONE*.md` files.
