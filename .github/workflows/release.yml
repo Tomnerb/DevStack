@@ -1,0 +1,398 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vX.Y.Z tag to release
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  WAILS_VERSION: v3.0.0-beta.19
+
+jobs:
+  validate:
+    name: Validate source and version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Verify tag matches VERSION
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "VERSION must be a stable semantic version for a public release: $version" >&2
+            exit 1
+          fi
+          if [[ "$RELEASE_TAG" != "v$version" ]]; then
+            echo "Release tag $RELEASE_TAG does not match VERSION ($version)." >&2
+            exit 1
+          fi
+
+      - name: Build frontend
+        run: |
+          npm ci --prefix frontend
+          npm run build --prefix frontend
+
+      - name: Run Go tests
+        run: go test ./...
+
+  macos-guest:
+    name: Build macOS native guest
+    needs: validate
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install guest-image tools
+        run: sudo apt-get update && sudo apt-get install -y e2fsprogs zstd
+
+      - name: Build guest assets
+        run: ./scripts/build-macos-guest-assets-linux.sh
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macos-guest-arm64
+          path: dist/macos-guest/
+          if-no-files-found: error
+          retention-days: 2
+
+  macos:
+    name: Signed macOS arm64 release
+    needs: macos-guest
+    runs-on: macos-14
+    environment: release-macos
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: macos-guest-arm64
+          path: macos-guest
+
+      - name: Install build dependencies
+        run: |
+          npm ci --prefix frontend
+          go install github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Import Apple signing certificate
+        shell: bash
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD MACOS_SIGN_IDENTITY APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Required GitHub Actions secret is missing: $name" >&2
+              exit 1
+            fi
+          done
+
+          certificate_path="$RUNNER_TEMP/devstack-signing.p12"
+          keychain_path="$RUNNER_TEMP/devstack-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+
+          printf '%s' "$MACOS_CERTIFICATE" | base64 -D > "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -k "$keychain_path" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" login.keychain-db
+          security default-keychain -d user -s "$keychain_path"
+
+          xcrun notarytool store-credentials devstack-ci \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD"
+
+      - name: Build, sign, notarize, and package
+        shell: bash
+        env:
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          set -euo pipefail
+          ./scripts/build-macos.sh arm64 \
+            --guest-assets ./macos-guest \
+            --release \
+            --sign-identity "$MACOS_SIGN_IDENTITY" \
+            --notary-profile devstack-ci
+
+      - name: Verify signed outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          codesign --verify --deep --strict --verbose=2 dist/macos-arm64/DevStack.app
+          xcrun stapler validate dist/macos-arm64/DevStack.app
+          xcrun stapler validate "dist/macos-arm64/DevStack-$(cat VERSION)-macOS-arm64.dmg"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-macos-arm64
+          path: |
+            dist/macos-arm64/DevStack-*-macOS-arm64.dmg
+            dist/macos-arm64/DevStack-*-darwin-arm64.zip
+          if-no-files-found: error
+
+      - name: Remove temporary signing keychain
+        if: always()
+        shell: bash
+        run: |
+          security default-keychain -d user -s login.keychain-db || true
+          security delete-keychain "$RUNNER_TEMP/devstack-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/devstack-signing.p12"
+
+  windows:
+    name: Signed Windows amd64 release
+    needs: validate
+    runs-on: windows-2025
+    environment: release-windows
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          npm ci --prefix frontend
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@$env:WAILS_VERSION"
+          Add-Content $env:GITHUB_PATH "$(go env GOPATH)\bin"
+          choco install nsis -y --no-progress
+
+      - name: Decode signing certificate
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
+            throw "WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD secrets are required."
+          }
+          [IO.File]::WriteAllBytes(
+            "$env:RUNNER_TEMP\devstack-signing.pfx",
+            [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+          )
+
+      - name: Build and sign application
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (Get-Content VERSION -Raw).Trim()
+          $info = Get-Content build/windows/info.json -Raw | ConvertFrom-Json
+          $info.fixed.file_version = $version
+          $info.info.'0000'.ProductVersion = $version
+          $info | ConvertTo-Json -Depth 8 | Set-Content build/windows/info.json -Encoding utf8
+          wails3 task windows:build ARCH=amd64
+          $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter signtool.exe -Recurse |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $signTool) { throw "signtool.exe was not found." }
+          & $signTool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f "$env:RUNNER_TEMP\devstack-signing.pfx" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" bin\devstack.exe
+
+      - name: Create and sign per-user installer
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (Get-Content VERSION -Raw).Trim()
+          wails3 generate webview2bootstrapper -dir build/windows/nsis
+          Push-Location build/windows/nsis
+          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" "/DWAILS_INSTALL_SCOPE=user" "/DREQUEST_EXECUTION_LEVEL=user" "/DINFO_PROJECTNAME=DevStack" "/DINFO_COMPANYNAME=DevStack" "/DINFO_PRODUCTNAME=DevStack" "/DINFO_PRODUCTVERSION=$version" "/DARG_WAILS_AMD64_BINARY=$pwd\..\..\..\bin\devstack.exe" project.nsi
+          Pop-Location
+
+          $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter signtool.exe -Recurse |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          & $signTool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f "$env:RUNNER_TEMP\devstack-signing.pfx" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" bin\DevStack-amd64-installer.exe
+
+          New-Item -ItemType Directory -Force dist/release | Out-Null
+          Compress-Archive -Path bin/devstack.exe -DestinationPath "dist/release/DevStack-$version-windows-amd64.zip" -Force
+          Copy-Item bin/DevStack-amd64-installer.exe "dist/release/DevStack-$version-windows-amd64-installer.exe"
+
+      - name: Verify Authenticode signatures
+        shell: pwsh
+        run: |
+          $binary = Get-AuthenticodeSignature bin/devstack.exe
+          $installer = Get-AuthenticodeSignature bin/DevStack-amd64-installer.exe
+          if ($binary.Status -ne "Valid") { throw "Application signature is $($binary.Status)." }
+          if ($installer.Status -ne "Valid") { throw "Installer signature is $($installer.Status)." }
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-windows-amd64
+          path: dist/release/
+          if-no-files-found: error
+
+      - name: Remove temporary signing certificate
+        if: always()
+        shell: pwsh
+        run: Remove-Item "$env:RUNNER_TEMP\devstack-signing.pfx" -Force -ErrorAction SilentlyContinue
+
+  linux:
+    name: Linux amd64 release
+    needs: validate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libgtk-3-dev libwebkit2gtk-4.1-dev
+          npm ci --prefix frontend
+          go install github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Build user-installable archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          ./scripts/build-linux.sh amd64
+          mkdir -p dist/release/stage
+          install -m 0755 dist/linux-amd64/devstack dist/release/stage/devstack
+          tar -C dist/release/stage -czf "dist/release/DevStack-$version-linux-amd64.tar.gz" devstack
+          rm -rf dist/release/stage
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-linux-amd64
+          path: dist/release/
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [macos, windows, linux]
+    runs-on: ubuntu-24.04
+    environment: release-publish
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create combined updater checksums
+        shell: bash
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          find . -maxdepth 1 -type f \( -name '*-darwin-*.zip' -o -name '*-windows-*.zip' -o -name '*-linux-*.tar.gz' \) -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            | sed 's#  \./#  #' > SHA256SUMS
+          test "$(wc -l < SHA256SUMS)" -eq 3
+          sha256sum --check SHA256SUMS
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          else
+            gh release create "$RELEASE_TAG" release-assets/* \
+              --verify-tag \
+              --title "DevStack v$version" \
+              --generate-notes
+          fi

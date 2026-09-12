@@ -5,11 +5,11 @@
 	"info": {
 		"0000": {
 			"ProductVersion": "0.1.0",
-			"CompanyName": "My Company",
-			"FileDescription": "A devstack application",
-			"LegalCopyright": "© 2026, My Company",
-			"ProductName": "My Product",
-			"Comments": "This is a comment"
+			"CompanyName": "DevStack",
+			"FileDescription": "DevStack Desktop",
+			"LegalCopyright": "© 2026 DevStack",
+			"ProductName": "DevStack",
+			"Comments": "Cross-platform container workspace"
 		}
 	}
 }
