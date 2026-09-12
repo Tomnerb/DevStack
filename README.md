@@ -204,7 +204,7 @@ Windows releases plus the Linux updater archive, creates one combined
 from **Actions → Release → Run workflow** with an existing tag.
 The current automated targets are macOS arm64, Windows amd64, and Linux amd64.
 
-Configure these GitHub Actions repository secrets before publishing:
+Configure these GitHub Actions environment secrets before publishing:
 
 | Secret | Value |
 | --- | --- |
@@ -219,10 +219,12 @@ Configure these GitHub Actions repository secrets before publishing:
 
 Create GitHub environments named `release-macos`, `release-windows`, and
 `release-publish`. Store platform signing secrets in their matching environment
-instead of as unrestricted repository secrets, require approval for release
-environments, protect `main` and release tags, and enable private vulnerability
-reporting under **Settings → Security**. The workflow pins third-party actions
-to reviewed commit SHAs so a mutable action tag cannot change release code.
+instead of as unrestricted repository secrets. Restrict deployments to version
+tags matching `v*.*.*`; optional required reviewers add a manual release gate,
+while leaving reviewers empty preserves fully automatic tagged releases.
+Protect `main` and release tags, and enable private vulnerability reporting
+under **Settings → Security**. The workflow pins third-party actions to reviewed
+commit SHAs so a mutable action tag cannot change release code.
 
 Then publish a release by changing and committing `VERSION` before creating the
 matching tag:
