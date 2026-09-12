@@ -26,6 +26,9 @@ npm ci --prefix frontend
 npm run build --prefix frontend
 ```
 
+On Linux, install the GTK3 and WebKitGTK development packages documented in the
+README and run `go test -tags gtk3 ./...`.
+
 Run `gofmt` on changed Go files. Platform-specific engine changes should be
 tested on the target operating system when possible; clearly document any
 validation that could not be performed.
