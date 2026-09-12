@@ -4,15 +4,15 @@
         <key>CFBundlePackageType</key>
             <string>APPL</string>
         <key>CFBundleName</key>
-            <string>DevStack</string>
+            <string>Dockiva</string>
         <key>CFBundleExecutable</key>
-            <string>devstack</string>
+            <string>dockiva</string>
         <key>CFBundleIdentifier</key>
-            <string>com.devstack.desktop</string>
+            <string>com.tomnerb.dockiva.dev</string>
         <key>CFBundleVersion</key>
             <string>0.1.0</string>
         <key>CFBundleGetInfoString</key>
-            <string>DevStack container workspace for macOS</string>
+            <string>Dockiva container workspace for macOS</string>
         <key>CFBundleShortVersionString</key>
             <string>0.1.0</string>
         <key>CFBundleIconFile</key>
@@ -22,7 +22,7 @@
         <key>NSHighResolutionCapable</key>
             <string>true</string>
         <key>NSHumanReadableCopyright</key>
-            <string>© 2026 DevStack</string>
+            <string>© 2026 Dockiva</string>
         <key>NSAppTransportSecurity</key>
         <dict>
             <key>NSAllowsLocalNetworking</key>

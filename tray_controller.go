@@ -54,7 +54,7 @@ func NewTrayController(
 func (t *TrayController) Start() {
 	t.tray = t.app.SystemTray.New()
 	t.tray.SetIcon(t.icon)
-	t.tray.SetTooltip("DevStack")
+	t.tray.SetTooltip("Dockiva")
 
 	// Do not attach a tray-level OnClick handler.
 	// Clicking the status item should only open the native menu.
@@ -65,7 +65,7 @@ func (t *TrayController) Start() {
 	// changes. The callback is lightweight and the refresh itself is
 	// debounced below.
 	t.app.Event.On(
-		"devstack:docker-event",
+		"dockiva:docker-event",
 		func(event *application.CustomEvent) {
 			t.scheduleRefresh()
 		},
@@ -226,7 +226,7 @@ func (t *TrayController) refresh() {
 	menu.AddSeparator()
 
 	if t.window.IsVisible() {
-		menu.Add("Hide DevStack").
+		menu.Add("Hide Dockiva").
 			OnClick(
 				func(
 					ctx *application.Context,
@@ -235,7 +235,7 @@ func (t *TrayController) refresh() {
 				},
 			)
 	} else {
-		menu.Add("Show DevStack").
+		menu.Add("Show Dockiva").
 			OnClick(
 				func(
 					ctx *application.Context,
@@ -291,7 +291,7 @@ func (t *TrayController) refresh() {
 
 	menu.AddSeparator()
 
-	menu.Add("Quit DevStack").
+	menu.Add("Quit Dockiva").
 		OnClick(
 			func(
 				ctx *application.Context,
@@ -1003,7 +1003,7 @@ func (t *TrayController) runAction(
 
 func (t *TrayController) emitTrayRefresh() {
 	t.app.Event.Emit(
-		"devstack:tray-refresh",
+		"dockiva:tray-refresh",
 		map[string]any{
 			"timestamp": time.Now().
 				UnixMilli(),
@@ -1115,7 +1115,7 @@ func trayTooltip(
 	}
 
 	return fmt.Sprintf(
-		"DevStack · Engine %s · %s · %d running · %d stopped",
+		"Dockiva · Engine %s · %s · %d running · %d stopped",
 		state,
 		runtimeName,
 		running,

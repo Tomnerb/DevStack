@@ -23,8 +23,8 @@ const (
 	composeProjectLabel = "com.docker.compose.project"
 	composeServiceLabel = "com.docker.compose.service"
 
-	terminalOutputEvent = "devstack:terminal-output"
-	logOutputEvent      = "devstack:log-output"
+	terminalOutputEvent = "dockiva:terminal-output"
+	logOutputEvent      = "dockiva:log-output"
 )
 
 type terminalSession struct {
@@ -753,7 +753,7 @@ func (s *DockerService) getSingleContainerStats(containerID string) ContainerRes
 }
 
 // StartTerminal creates a persistent /bin/sh exec session with a TTY.
-// The frontend receives output through the "devstack:terminal-output" event.
+// The frontend receives output through the "dockiva:terminal-output" event.
 func (s *DockerService) StartTerminal(containerID string) (string, error) {
 	containerID = strings.TrimSpace(containerID)
 	if containerID == "" {
@@ -969,7 +969,7 @@ func (s *DockerService) readTerminal(session *terminalSession) {
 }
 
 // StartLogStream follows Docker logs until StopLogStream is called or the
-// container log stream ends. Output is emitted as "devstack:log-output".
+// container log stream ends. Output is emitted as "dockiva:log-output".
 func (s *DockerService) StartLogStream(containerID string, tail int) (string, error) {
 	containerID = strings.TrimSpace(containerID)
 	if containerID == "" {

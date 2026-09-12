@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "DevStack containerd networking"
+echo "Dockiva containerd networking"
 echo
 
 echo "User:"
@@ -9,16 +9,16 @@ id
 echo
 
 echo "Helper socket:"
-if [[ -S /run/devstack/netd.sock ]]; then
-  ls -l /run/devstack/netd.sock
+if [[ -S /run/dockiva/netd.sock ]]; then
+  ls -l /run/dockiva/netd.sock
 else
-  echo "  missing: /run/devstack/netd.sock"
+  echo "  missing: /run/dockiva/netd.sock"
 fi
 
 echo
 echo "CNI config:"
-if [[ -f /etc/cni/net.d/10-devstack.conflist ]]; then
-  echo "  ready: /etc/cni/net.d/10-devstack.conflist"
+if [[ -f /etc/cni/net.d/10-dockiva.conflist ]]; then
+  echo "  ready: /etc/cni/net.d/10-dockiva.conflist"
 else
   echo "  missing"
 fi
@@ -38,9 +38,9 @@ done
 
 echo
 echo "Bridge:"
-ip -brief link show devstack0 2>/dev/null ||
-  echo "  devstack0 will appear after the first networked direct-containerd container"
+ip -brief link show dockiva0 2>/dev/null ||
+  echo "  dockiva0 will appear after the first networked direct-containerd container"
 
 echo
 echo "Service:"
-systemctl --no-pager --full status devstack-netd 2>/dev/null | head -20 || true
+systemctl --no-pager --full status dockiva-netd 2>/dev/null | head -20 || true

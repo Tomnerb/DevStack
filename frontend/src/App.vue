@@ -11,8 +11,8 @@ import { Call, Events } from '@wailsio/runtime'
 import XtermTerminal from './components/XtermTerminal.vue'
 import ContainerDetailsModal from './components/ContainerDetailsModal.vue'
 import EngineSettingsPanel from './components/EngineSettingsPanel.vue'
-import brandSymbol from '../../assets/devstack_icon.png'
-import brandAppIcon from '../../assets/devstack_icon2.png'
+import brandSymbol from '../../assets/dockiva_icon.png'
+import brandAppIcon from '../../assets/dockiva_icon2.png'
 
 type TabName = 'overview' | 'containers' | 'images' | 'volumes' | 'networks' | 'storage' | 'engine'
 type ContainerAction = 'start' | 'stop' | 'restart' | 'delete'
@@ -208,13 +208,13 @@ interface DockerMigrationStatus {
 
 const activeTab = ref<TabName>('overview')
 const systemTheme = window.matchMedia('(prefers-color-scheme: dark)')
-const savedTheme = window.localStorage.getItem('devstack-color-theme')
+const savedTheme = window.localStorage.getItem('dockiva-color-theme')
 const colorTheme = ref<ColorTheme>(
   savedTheme === 'light' || savedTheme === 'dark'
     ? savedTheme
     : systemTheme.matches ? 'dark' : 'light',
 )
-const savedSidebarMode = window.localStorage.getItem('devstack-sidebar-mode')
+const savedSidebarMode = window.localStorage.getItem('dockiva-sidebar-mode')
 const sidebarCompact = ref(savedSidebarMode !== 'expanded')
 const dockerStatus = ref<DockerStatus | null>(null)
 const platformInfo = ref<PlatformInfo | null>(null)
@@ -300,14 +300,14 @@ function applyColorTheme() {
 
 function toggleColorTheme() {
   colorTheme.value = colorTheme.value === 'dark' ? 'light' : 'dark'
-  window.localStorage.setItem('devstack-color-theme', colorTheme.value)
+  window.localStorage.setItem('dockiva-color-theme', colorTheme.value)
   applyColorTheme()
 }
 
 function toggleSidebar() {
   sidebarCompact.value = !sidebarCompact.value
   window.localStorage.setItem(
-    'devstack-sidebar-mode',
+    'dockiva-sidebar-mode',
     sidebarCompact.value ? 'compact' : 'expanded',
   )
 }
@@ -650,7 +650,7 @@ async function migrateDockerVolumes() {
     const result = await Call.ByName(
       'main.DockerService.MigrateDockerVolumes',
     ) as CLIResult
-    showSuccess('Docker named volumes copied into DevStack Native.', result.output)
+    showSuccess('Docker named volumes copied into Dockiva Native.', result.output)
   } catch (err) {
     showError(err)
   } finally {
@@ -671,10 +671,10 @@ async function pollDockerMigrationStatus() {
     }
     if (migrationStatus.value.state === 'complete') {
       if (migrationStatus.value.kind === 'container') {
-        showSuccess('Docker containers copied into DevStack Native.', migrationStatus.value.message)
+        showSuccess('Docker containers copied into Dockiva Native.', migrationStatus.value.message)
         await loadContainers()
       } else {
-        showSuccess('Docker images copied into DevStack Native.', migrationStatus.value.message)
+        showSuccess('Docker images copied into Dockiva Native.', migrationStatus.value.message)
         await loadImages()
       }
     } else if (migrationStatus.value.state === 'failed') {
@@ -967,7 +967,7 @@ async function runCompose(
 
   if (action === 'rebuild') {
     const okay = window.confirm(
-      `Rebuild and recreate "${group.name}"?\n\nDevStack will run "docker compose build" followed by "docker compose up -d".`,
+      `Rebuild and recreate "${group.name}"?\n\nDockiva will run "docker compose build" followed by "docker compose up -d".`,
     )
     if (!okay) {
       return
@@ -1165,7 +1165,7 @@ async function removeVolume(volume: VolumeInfo) {
 }
 
 function isDefaultNetwork(network: NetworkInfo) {
-  return ['bridge', 'host', 'none', 'devstack-net'].includes(network.name)
+  return ['bridge', 'host', 'none', 'dockiva-net'].includes(network.name)
 }
 
 async function removeNetwork(network: NetworkInfo) {
@@ -1358,7 +1358,7 @@ async function closeLogs() {
 
 function setupLogListener() {
   unsubscribeLogs = Events.On(
-    'devstack:log-output',
+    'dockiva:log-output',
     (payload: any) => {
       const data = payload as StreamOutputEvent
 
@@ -1378,7 +1378,7 @@ function setupLogListener() {
       if (data.error) {
         logsText.value = appendLimited(
           logsText.value,
-          `\n[DevStack] ${data.error}\n`,
+          `\n[Dockiva] ${data.error}\n`,
         )
       }
 
@@ -1608,14 +1608,14 @@ async function refreshFromDockerEvent() {
 
 function setupPlatformListeners() {
   unsubscribeDockerEvents = Events.On(
-    'devstack:docker-event',
+    'dockiva:docker-event',
     () => {
       scheduleDockerRefresh()
     },
   )
 
   unsubscribeFileDrops = Events.On(
-    'devstack:files-dropped',
+    'dockiva:files-dropped',
     (payload: any) => {
       const data = payload?.data ?? payload
       const files = Array.isArray(data) ? data : data?.files
@@ -1629,14 +1629,14 @@ function setupPlatformListeners() {
   )
 
   unsubscribeTrayRefresh = Events.On(
-    'devstack:tray-refresh',
+    'dockiva:tray-refresh',
     () => {
       void loadCurrentTab()
     },
   )
 
   unsubscribeMigrationStatus = Events.On(
-    'devstack:migration-status',
+    'dockiva:migration-status',
     (payload: any) => {
       const data = (payload?.data ?? payload) as DockerMigrationStatus
       if (data.kind === 'volume') {
@@ -1644,7 +1644,7 @@ function setupPlatformListeners() {
         volumeMigrationBusy.value = data.state === 'running'
         if (data.state === 'complete') {
           void loadVolumes()
-          showSuccess('Docker volumes copied into DevStack Native.', data.message)
+          showSuccess('Docker volumes copied into Dockiva Native.', data.message)
         } else if (data.state === 'failed') {
           showError(data.error || data.message)
         }
@@ -1654,10 +1654,10 @@ function setupPlatformListeners() {
       migrationBusy.value = data.state === 'running'
       if (data.state === 'complete') {
         if (data.kind === 'container') {
-          showSuccess('Docker containers copied into DevStack Native.', data.message)
+          showSuccess('Docker containers copied into Dockiva Native.', data.message)
           void loadContainers()
         } else {
-          showSuccess('Docker images copied into DevStack Native.', data.message)
+          showSuccess('Docker images copied into Dockiva Native.', data.message)
           void loadImages()
         }
       } else if (data.state === 'failed') {
@@ -1768,7 +1768,7 @@ onBeforeUnmount(() => {
       <div class="brand px-5 pb-5 pt-6">
         <img class="brand-mark" :src="brandAppIcon" alt="" aria-hidden="true" />
         <div class="brand-copy">
-          <h1 class="text-lg font-semibold tracking-tight">DevStack</h1>
+          <h1 class="text-lg font-semibold tracking-tight">Dockiva</h1>
           <p class="mt-0.5 text-[11px] text-zinc-500">Local container studio</p>
         </div>
       </div>
@@ -2045,7 +2045,7 @@ onBeforeUnmount(() => {
                   Direct containerd
                 </div>
                 <div class="mt-1 text-xs leading-5 text-zinc-600">
-                  Namespace <span class="font-mono text-zinc-400">devstack</span>.
+                  Namespace <span class="font-mono text-zinc-400">dockiva</span>.
                   <template v-if="runtimeCapabilities.networks">
                     CNI bridge, host DNS, and localhost TCP publishing are ready.
                   </template>
@@ -2419,7 +2419,7 @@ onBeforeUnmount(() => {
         <!-- NETWORKS -->
         <div v-else-if="activeTab === 'networks'" class="space-y-4">
           <div v-if="!isDockerRuntime" class="panel border border-cyan-400/25 bg-cyan-950/40 p-4 text-sm leading-6 text-cyan-100">
-            Native containers use DevStack's managed <code class="font-mono text-cyan-200">devstack-net</code> CNI bridge. It provides container-to-container connectivity and localhost port publishing. Custom network creation is not available yet.
+            Native containers use Dockiva's managed <code class="font-mono text-cyan-200">dockiva-net</code> CNI bridge. It provides container-to-container connectivity and localhost port publishing. Custom network creation is not available yet.
           </div>
           <form v-else class="panel flex flex-wrap items-center gap-2 p-4" @submit.prevent="createNetwork">
             <input v-model="newNetworkName" class="field min-w-56 flex-1" placeholder="Network name" />
@@ -2616,7 +2616,7 @@ onBeforeUnmount(() => {
         </header>
 
         <p v-if="!storageCleanupTarget.engineRunning" class="storage-engine-note">
-          Docker Desktop is stopped. DevStack will start it securely before analyzing and cleaning this data.
+          Docker Desktop is stopped. Dockiva will start it securely before analyzing and cleaning this data.
         </p>
 
         <div class="storage-cleanup-options">
@@ -2732,7 +2732,7 @@ onBeforeUnmount(() => {
 
     <div v-if="migrationPromptOpen && dockerMigrationPreview" class="migration-backdrop fixed inset-0 z-[80] flex items-center justify-center p-5">
       <section class="migration-dialog w-full max-w-xl rounded-2xl p-6 shadow-2xl">
-        <p class="migration-eyebrow">DEVSTACK NATIVE</p>
+        <p class="migration-eyebrow">DOCKIVA NATIVE</p>
         <h2 class="migration-title mt-2">Migrate your Docker workspace?</h2>
         <p class="migration-copy mt-2">{{ dockerMigrationPreview.message }}</p>
         <div class="mt-5 grid grid-cols-3 gap-3 text-center">
@@ -2740,7 +2740,7 @@ onBeforeUnmount(() => {
           <div class="migration-stat p-3"><b>{{ dockerMigrationPreview.images }}</b><span>images</span></div>
           <div class="migration-stat p-3"><b>{{ dockerMigrationPreview.volumes }}</b><span>volumes</span></div>
         </div>
-        <p v-if="dockerMigrationPreview.running" class="migration-warning mt-4">{{ dockerMigrationPreview.running }} container(s) are running. DevStack will ask to stop them before copying volume data.</p>
+        <p v-if="dockerMigrationPreview.running" class="migration-warning mt-4">{{ dockerMigrationPreview.running }} container(s) are running. Dockiva will ask to stop them before copying volume data.</p>
         <div v-if="migrationBusy || volumeMigrationBusy" class="migration-progress mt-4" aria-live="polite">
           <div class="flex items-center justify-between gap-3">
             <span>{{ migrationProgressStatus.message }}</span>

@@ -74,7 +74,7 @@ func containerdLogPath(id string) (string, error) {
 		stateDir = filepath.Join(home, ".local", "state")
 	}
 
-	dir := filepath.Join(stateDir, "DevStack", "container-logs")
+	dir := filepath.Join(stateDir, "Dockiva", "container-logs")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -84,13 +84,13 @@ func containerdLogPath(id string) (string, error) {
 
 // containerdFIFODir is deliberately user-owned. The system containerd default
 // (/run/containerd/fifo) is root-owned, while terminal client FIFOs are
-// created by the DevStack desktop process.
+// created by the Dockiva desktop process.
 func containerdFIFODir() (string, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(cacheDir, "DevStack", "containerd-fifo")
+	dir := filepath.Join(cacheDir, "Dockiva", "containerd-fifo")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
@@ -285,7 +285,7 @@ func (r *containerdRuntime) RuntimeOpenTerminal(
 	if !r.rootless {
 		sessionID, err := networkHelperTerminalOpen(ctx, containerID, width, height)
 		if err != nil {
-			return "", fmt.Errorf("open DevStack terminal helper: %w", err)
+			return "", fmt.Errorf("open Dockiva terminal helper: %w", err)
 		}
 		state.Mu.Lock()
 		state.Terminals[sessionID] = &containerdToolSession{HelperSession: sessionID}
@@ -315,7 +315,7 @@ func (r *containerdRuntime) RuntimeOpenTerminal(
 	// xterm intentionally does not locally echo keystrokes.
 	processSpec.Args = []string{"/bin/sh", "-i"}
 	processSpec.Cwd = "/"
-	processSpec.Env = append(processSpec.Env, "TERM=xterm-256color", "PS1=devstack$ ")
+	processSpec.Env = append(processSpec.Env, "TERM=xterm-256color", "PS1=dockiva$ ")
 
 	if width == 0 {
 		width = 120

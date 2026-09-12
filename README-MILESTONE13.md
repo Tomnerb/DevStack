@@ -1,4 +1,4 @@
-# DevStack — Milestone 13: Native macOS Virtualization.framework backend
+# Dockiva — Milestone 13: Native macOS Virtualization.framework backend
 
 Milestone 13 replaces the transitional Lima backend with a native macOS VM
 backend built directly on Apple's `Virtualization.framework`.
@@ -6,13 +6,13 @@ backend built directly on Apple's `Virtualization.framework`.
 ## Target architecture
 
 ```text
-DevStack.app
+Dockiva.app
    │
    ├── shared Go / Vue UI
    │
    ├── engine_darwin.go
    │
-   └── devstack-vmm (Swift)
+   └── dockiva-vmm (Swift)
           │
           ▼
    Virtualization.framework
@@ -22,7 +22,7 @@ DevStack.app
           │
           ├── containerd
           ├── runc
-          └── devstack-guestd
+          └── dockiva-guestd
                  │
                  │ virtio-vsock
                  ▼
@@ -45,7 +45,7 @@ Instead of forcing the whole Wails/Go desktop app to own VM lifecycle details,
 Milestone 13 isolates the native VMM in:
 
 ```text
-native/macos/DevStackVMM
+native/macos/DockivaVMM
 ```
 
 The Go macOS backend starts/stops that helper and connects to the guest
@@ -58,16 +58,16 @@ The VM has a `VZVirtioSocketDeviceConfiguration`.
 Inside Linux:
 
 ```text
-devstack-guestd
+dockiva-guestd
   vsock port 10250
       ↓
 /run/containerd/containerd.sock
 ```
 
-On macOS, `devstack-vmm` exposes:
+On macOS, `dockiva-vmm` exposes:
 
 ```text
-~/Library/Application Support/DevStack/run/containerd.sock
+~/Library/Application Support/Dockiva/run/containerd.sock
 ```
 
 Every local Unix-socket connection is relayed to guest vsock port `10250`.
@@ -85,11 +85,11 @@ RAM: 2048 MiB
 disk: 2 GiB sparse ext4 image
 ```
 
-Override the Go backend defaults before launching DevStack:
+Override the Go backend defaults before launching Dockiva:
 
 ```bash
-export DEVSTACK_VM_CPUS=2
-export DEVSTACK_VM_MEMORY_MIB=1024
+export DOCKIVA_VM_CPUS=2
+export DOCKIVA_VM_MEMORY_MIB=1024
 ```
 
 For a small development workload, 1–2 GiB is a reasonable starting point.
@@ -104,8 +104,8 @@ containing:
 - containerd-shim-runc-v2
 - runc
 - CNI binaries
-- devstack-guestd
-- custom `/sbin/devstack-init`
+- dockiva-guestd
+- custom `/sbin/dockiva-init`
 
 There is no desktop environment and no Docker daemon.
 
@@ -121,15 +121,15 @@ CNI plugins 1.9.1
 ```
 
 The kernel fetch follows the current Apple-container-style optimized Kata kernel
-layout and produces the file DevStack expects as `vmlinux`.
+layout and produces the file Dockiva expects as `vmlinux`.
 
 ## Step 1 — apply Milestone 13
 
 ```bash
-chmod +x devstack-milestone13/apply.sh
+chmod +x dockiva-milestone13/apply.sh
 
-./devstack-milestone13/apply.sh \
-  /home/darith/mbanq/devstack/devstack
+./dockiva-milestone13/apply.sh \
+  /home/darith/mbanq/dockiva/dockiva
 ```
 
 ## Step 2 — build guest assets on Linux
@@ -137,7 +137,7 @@ chmod +x devstack-milestone13/apply.sh
 On your Linux machine:
 
 ```bash
-cd /home/darith/mbanq/devstack/devstack
+cd /home/darith/mbanq/dockiva/dockiva
 
 ./scripts/build-macos-guest-assets-linux.sh
 ```
@@ -162,14 +162,14 @@ On the Mac:
 ```
 
 Use `amd64` for an Intel Mac. Add `--install` to copy the completed app to
-`~/Applications/DevStack.app`.
+`~/Applications/Dockiva.app`.
 
 The build script packages:
 
 ```text
-DevStack.app/Contents/Resources/devstack-vmm
-DevStack.app/Contents/Resources/guest/vmlinux
-DevStack.app/Contents/Resources/guest/rootfs.ext4
+Dockiva.app/Contents/Resources/dockiva-vmm
+Dockiva.app/Contents/Resources/guest/vmlinux
+Dockiva.app/Contents/Resources/guest/rootfs.ext4
 ```
 
 The helper is ad-hoc signed during development with:
@@ -181,17 +181,17 @@ com.apple.security.virtualization = true
 For a production release, sign the embedded helper with your Developer ID
 identity as part of the final app signing pipeline.
 
-## Step 4 — run DevStack
+## Step 4 — run Dockiva
 
 ```bash
-open dist/macos-arm64/DevStack.app
+open dist/macos-arm64/Dockiva.app
 ```
 
-On the first native-engine start, DevStack copies the bundled guest assets to
+On the first native-engine start, Dockiva copies the bundled guest assets to
 the writable runtime location:
 
 ```text
-~/Library/Application Support/DevStack/guest/
+~/Library/Application Support/Dockiva/guest/
 ├── vmlinux
 └── rootfs.ext4
 ```
@@ -200,13 +200,13 @@ Then select:
 
 ```text
 Engine
-  → Native DevStack VM
+  → Native Dockiva VM
   → Start / Connect
 ```
 
-The backend starts `devstack-vmm`.
+The backend starts `dockiva-vmm`.
 
-When the guest's vsock proxy is ready, DevStack automatically selects:
+When the guest's vsock proxy is ready, Dockiva automatically selects:
 
 ```text
 containerd (native macOS guest)
@@ -220,7 +220,7 @@ Implemented:
 - no Lima dependency
 - no Docker Desktop dependency
 - containerd over virtio-vsock
-- dedicated `devstack` namespace
+- dedicated `dockiva` namespace
 - OCI image pull/unpack
 - container create/start/stop/restart/delete
 

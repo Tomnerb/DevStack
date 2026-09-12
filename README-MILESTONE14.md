@@ -1,6 +1,6 @@
-# DevStack — Milestone 14: Advanced tray / menu-bar controls
+# Dockiva — Milestone 14: Advanced tray / menu-bar controls
 
-Milestone 14 turns the system tray / macOS menu-bar item into a real DevStack
+Milestone 14 turns the system tray / macOS menu-bar item into a real Dockiva
 control center.
 
 ## What it adds
@@ -41,11 +41,11 @@ Containers (5)
       Start
 
 ──────────────────────────────
-Show/Hide DevStack
+Show/Hide Dockiva
 Refresh
 ✓ Start at Login
 ──────────────────────────────
-Quit DevStack
+Quit Dockiva
 ```
 
 ## Engine controls
@@ -57,7 +57,7 @@ From the menu bar / system tray:
 - Restart Engine
 - Reconnect external engine
 
-Managed engine stop/restart is only shown where DevStack actually owns the
+Managed engine stop/restart is only shown where Dockiva actually owns the
 engine:
 
 ```text
@@ -66,7 +66,7 @@ Windows → WSL2 managed engine
 ```
 
 For Linux host Docker/containerd and explicitly external Docker endpoints,
-DevStack does not attempt to stop the host service from the tray.
+Dockiva does not attempt to stop the host service from the tray.
 
 ## Container controls
 
@@ -81,11 +81,11 @@ The Containers submenu supports:
 This works through the active `ContainerRuntime`, so the same tray UI can
 control Docker/Moby containers or direct-containerd containers.
 
-To keep the native menu manageable, DevStack shows up to 8 containers directly.
+To keep the native menu manageable, Dockiva shows up to 8 containers directly.
 If more exist, the menu offers:
 
 ```text
-Open DevStack to view N more…
+Open Dockiva to view N more…
 ```
 
 ## Live state
@@ -93,10 +93,10 @@ Open DevStack to view N more…
 The tray rebuilds itself every 5 seconds using Wails' supported dynamic menu
 rebuild pattern.
 
-After a tray action, DevStack also emits:
+After a tray action, Dockiva also emits:
 
 ```text
-devstack:tray-refresh
+dockiva:tray-refresh
 ```
 
 The Vue UI listens for this event and refreshes the currently visible screen.
@@ -132,25 +132,25 @@ It uses the existing cross-platform Wails autostart integration.
 ## Apply
 
 ```bash
-chmod +x devstack-milestone14/apply.sh
+chmod +x dockiva-milestone14/apply.sh
 
-./devstack-milestone14/apply.sh \
-  /home/darith/mbanq/devstack/devstack
+./dockiva-milestone14/apply.sh \
+  /home/darith/mbanq/dockiva/dockiva
 ```
 
 Then on your current Linux machine:
 
 ```bash
-cd /home/darith/mbanq/devstack/devstack
+cd /home/darith/mbanq/dockiva/dockiva
 
 go mod tidy
 wails3 build -tags gtk3
-./bin/devstack
+./bin/dockiva
 ```
 
 ## macOS
 
-This is exactly the menu shown from the DevStack status item in the macOS menu
+This is exactly the menu shown from the Dockiva status item in the macOS menu
 bar.
 
 The native macOS engine work from Milestone 13 is unchanged.

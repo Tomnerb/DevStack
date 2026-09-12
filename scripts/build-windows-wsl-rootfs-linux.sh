@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if [[ "$(uname -s)" != "Linux" ]]; then
-  echo "Build the DevStack WSL rootfs on Linux or Linux CI."
+  echo "Build the Dockiva WSL rootfs on Linux or Linux CI."
   exit 1
 fi
 
@@ -35,10 +35,10 @@ chmod 0755 "$WORK/rootfs/usr/local/bin/runc"
 curl -fL "https://github.com/containernetworking/plugins/releases/download/v${CNI_VERSION}/cni-plugins-linux-amd64-v${CNI_VERSION}.tgz" -o "$WORK/cni.tgz"
 tar -xzf "$WORK/cni.tgz" -C "$WORK/rootfs/opt/cni/bin"
 
-install -m 0755 native/windows/devstack-start "$WORK/rootfs/usr/local/sbin/devstack-start"
+install -m 0755 native/windows/dockiva-start "$WORK/rootfs/usr/local/sbin/dockiva-start"
 
-tar -C "$WORK/rootfs" -cf "$OUT/devstack-wsl-rootfs.tar" .
+tar -C "$WORK/rootfs" -cf "$OUT/dockiva-wsl-rootfs.tar" .
 
 echo
 echo "Created:"
-ls -lh "$OUT/devstack-wsl-rootfs.tar"
+ls -lh "$OUT/dockiva-wsl-rootfs.tar"

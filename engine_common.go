@@ -171,7 +171,7 @@ func (s *DockerService) StopManagedEngine(
 	if backend == "external" {
 		return EngineActionResult{
 			Status: s.externalEngineStatus(),
-		}, errors.New("DevStack will not stop an externally managed Docker service")
+		}, errors.New("Dockiva will not stop an externally managed Docker service")
 	}
 
 	if backend != s.engine.Name() {
@@ -196,7 +196,7 @@ func (s *DockerService) DeleteManagedEngine(
 	if backend == "external" {
 		return EngineActionResult{
 			Status: s.externalEngineStatus(),
-		}, errors.New("external Docker is not owned by DevStack")
+		}, errors.New("external Docker is not owned by Dockiva")
 	}
 
 	if backend != s.engine.Name() {
@@ -272,7 +272,7 @@ func (s *DockerService) SwitchDockerEndpoint(endpoint string) error {
 
 	next, err := client.New(
 		client.WithHost(endpoint),
-		client.WithUserAgent("devstack/0.9.0"),
+		client.WithUserAgent("dockiva/0.9.0"),
 	)
 	if err != nil {
 		return err
@@ -302,7 +302,7 @@ func (s *DockerService) ConfigureDockerEndpoint(endpoint string) error {
 
 	next, err := client.New(
 		client.WithHost(endpoint),
-		client.WithUserAgent("devstack/0.9.0"),
+		client.WithUserAgent("dockiva/0.9.0"),
 	)
 	if err != nil {
 		return err
@@ -312,8 +312,8 @@ func (s *DockerService) ConfigureDockerEndpoint(endpoint string) error {
 }
 
 // ConfigureNativeDockerEndpoint selects the Docker API exposed by a
-// DevStack-owned VM without overwriting the user's saved External Docker
-// identity. This keeps Docker Desktop and DevStack Native separate stores.
+// Dockiva-owned VM without overwriting the user's saved External Docker
+// identity. This keeps Docker Desktop and Dockiva Native separate stores.
 func (s *DockerService) ConfigureNativeDockerEndpoint(endpoint string) error {
 	endpoint = strings.TrimSpace(endpoint)
 	if endpoint == "" {
@@ -322,7 +322,7 @@ func (s *DockerService) ConfigureNativeDockerEndpoint(endpoint string) error {
 	if strings.HasPrefix(endpoint, "/") {
 		endpoint = "unix://" + endpoint
 	}
-	next, err := client.New(client.WithHost(endpoint), client.WithUserAgent("devstack/0.9.0"))
+	next, err := client.New(client.WithHost(endpoint), client.WithUserAgent("dockiva/0.9.0"))
 	if err != nil {
 		return err
 	}

@@ -9,21 +9,21 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 ROOT="$(pwd)"
-PKG="$ROOT/native/macos/DevStackVMM"
+PKG="$ROOT/native/macos/DockivaVMM"
 
 echo "Building native macOS VMM helper..."
 swift build \
   --package-path "$PKG" \
   -c release
 
-BIN="$PKG/.build/release/devstack-vmm"
+BIN="$PKG/.build/release/dockiva-vmm"
 
 echo "Ad-hoc signing with virtualization entitlement..."
 codesign \
   --force \
   --sign - \
   --timestamp=none \
-  --entitlements "$PKG/devstack-vmm.entitlements" \
+  --entitlements "$PKG/dockiva-vmm.entitlements" \
   "$BIN"
 
 echo

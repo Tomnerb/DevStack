@@ -9,8 +9,8 @@ INSTALL=false
 EXTERNAL_ONLY=false
 RELEASE=false
 UNSIGNED_RELEASE=false
-SIGN_IDENTITY="${DEVSTACK_SIGN_IDENTITY:-}"
-NOTARY_PROFILE="${DEVSTACK_NOTARY_PROFILE:-}"
+SIGN_IDENTITY="${DOCKIVA_SIGN_IDENTITY:-}"
+NOTARY_PROFILE="${DOCKIVA_NOTARY_PROFILE:-}"
 RELEASE_TEMP=""
 APP_VERSION=""
 BUILD_NUMBER=""
@@ -29,15 +29,15 @@ Usage: ./scripts/build-macos.sh [arm64|amd64] [options]
 Options:
   --guest-assets DIR  Bundle DIR/vmlinux and DIR/rootfs.ext4.
                       Defaults to dist/macos-guest when present.
-  --install           Install the completed bundle to ~/Applications/DevStack.app.
+  --install           Install the completed bundle to ~/Applications/Dockiva.app.
   --external-only     Build without the native VMM helper and Linux guest assets.
   --release           Create a Developer ID-signed, notarized, and stapled DMG.
   --unsigned-release  Create an ad-hoc-signed DMG and updater archive.
                       macOS may block it until the user explicitly allows it.
   --sign-identity ID  Developer ID Application identity used by codesign.
-                      May also be set with DEVSTACK_SIGN_IDENTITY.
+                      May also be set with DOCKIVA_SIGN_IDENTITY.
   --notary-profile ID Keychain profile created by notarytool store-credentials.
-                      May also be set with DEVSTACK_NOTARY_PROFILE.
+                      May also be set with DOCKIVA_NOTARY_PROFILE.
   -h, --help          Show this help.
 EOF
 }
@@ -102,11 +102,11 @@ if [[ "$RELEASE" == true ]]; then
     exit 1
   fi
   if [[ -z "$SIGN_IDENTITY" ]]; then
-    echo "--release requires --sign-identity or DEVSTACK_SIGN_IDENTITY." >&2
+    echo "--release requires --sign-identity or DOCKIVA_SIGN_IDENTITY." >&2
     exit 2
   fi
   if [[ -z "$NOTARY_PROFILE" ]]; then
-    echo "--release requires --notary-profile or DEVSTACK_NOTARY_PROFILE." >&2
+    echo "--release requires --notary-profile or DOCKIVA_NOTARY_PROFILE." >&2
     exit 2
   fi
   for tool in codesign ditto security xcrun; do
@@ -136,12 +136,12 @@ if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
   exit 2
 fi
 
-BUILD_NUMBER="${DEVSTACK_BUILD_NUMBER:-}"
+BUILD_NUMBER="${DOCKIVA_BUILD_NUMBER:-}"
 if [[ -z "$BUILD_NUMBER" ]]; then
   BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 fi
 if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
-  echo "DEVSTACK_BUILD_NUMBER must be numeric: $BUILD_NUMBER" >&2
+  echo "DOCKIVA_BUILD_NUMBER must be numeric: $BUILD_NUMBER" >&2
   exit 2
 fi
 
@@ -153,7 +153,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$GENERATED_PLIST"
 fi
 
-cp -f assets/devstack_icon2.png build/appicon.png
+cp -f assets/dockiva_icon2.png build/appicon.png
 if [[ "$(uname -s)" == "Darwin" ]]; then
   swift -module-cache-path build/.swift-module-cache scripts/generate-macos-brand-assets.swift
 fi
@@ -164,7 +164,7 @@ fi
 
 if [[ "$EXTERNAL_ONLY" == false ]]; then
   if [[ "$(uname -s)" != "Darwin" ]]; then
-    echo "A native-engine macOS build must run on macOS because devstack-vmm links Virtualization.framework." >&2
+    echo "A native-engine macOS build must run on macOS because dockiva-vmm links Virtualization.framework." >&2
     echo "Use --external-only for an unsigned cross-build." >&2
     exit 1
   fi
@@ -173,7 +173,7 @@ if [[ "$EXTERNAL_ONLY" == false ]]; then
     echo "Native macOS guest assets are required." >&2
     echo "Generate them on Linux with scripts/build-macos-guest-assets-linux.sh, then pass:" >&2
     echo "  --guest-assets /path/to/macos-guest" >&2
-    echo "Use --external-only to build without DevStack Native." >&2
+    echo "Use --external-only to build without Dockiva Native." >&2
     exit 1
   fi
 
@@ -186,11 +186,11 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   wails3 task setup:docker
 fi
 
-echo "Building and packaging DevStack $APP_VERSION ($BUILD_NUMBER) for macOS/$ARCH..."
-rm -rf -- bin/devstack.app
+echo "Building and packaging Dockiva $APP_VERSION ($BUILD_NUMBER) for macOS/$ARCH..."
+rm -rf -- bin/dockiva.app
 wails3 task darwin:package ARCH="$ARCH" INFO_PLIST="$GENERATED_PLIST"
 
-SOURCE_APP="bin/devstack.app"
+SOURCE_APP="bin/dockiva.app"
 if [[ ! -d "$SOURCE_APP" ]]; then
   echo "Expected Wails bundle was not created at $SOURCE_APP" >&2
   exit 1
@@ -200,8 +200,8 @@ if [[ "$EXTERNAL_ONLY" == false ]]; then
   RESOURCES="$SOURCE_APP/Contents/Resources"
   mkdir -p "$RESOURCES/guest"
 
-  cp -f native/macos/DevStackVMM/.build/release/devstack-vmm "$RESOURCES/devstack-vmm"
-  chmod 0755 "$RESOURCES/devstack-vmm"
+  cp -f native/macos/DockivaVMM/.build/release/dockiva-vmm "$RESOURCES/dockiva-vmm"
+  chmod 0755 "$RESOURCES/dockiva-vmm"
   cp -f "$GUEST_ASSETS/vmlinux" "$RESOURCES/guest/vmlinux"
   cp -f "$GUEST_ASSETS/rootfs.ext4" "$RESOURCES/guest/rootfs.ext4"
   if [[ -f "$GUEST_ASSETS/manifest.txt" ]]; then
@@ -216,8 +216,8 @@ if [[ "$RELEASE" == true ]]; then
       --options runtime \
       --timestamp \
       --sign "$SIGN_IDENTITY" \
-      --entitlements native/macos/DevStackVMM/devstack-vmm.entitlements \
-      "$RESOURCES/devstack-vmm"
+      --entitlements native/macos/DockivaVMM/dockiva-vmm.entitlements \
+      "$RESOURCES/dockiva-vmm"
   fi
 
   codesign \
@@ -228,9 +228,9 @@ if [[ "$RELEASE" == true ]]; then
     "$SOURCE_APP"
   codesign --verify --deep --strict --verbose=2 "$SOURCE_APP"
 
-  RELEASE_TEMP="$(mktemp -d "${TMPDIR:-/tmp}/devstack-release.XXXXXX")"
-  ditto -c -k --keepParent "$SOURCE_APP" "$RELEASE_TEMP/devstack.zip"
-  xcrun notarytool submit "$RELEASE_TEMP/devstack.zip" \
+  RELEASE_TEMP="$(mktemp -d "${TMPDIR:-/tmp}/dockiva-release.XXXXXX")"
+  ditto -c -k --keepParent "$SOURCE_APP" "$RELEASE_TEMP/dockiva.zip"
+  xcrun notarytool submit "$RELEASE_TEMP/dockiva.zip" \
     --keychain-profile "$NOTARY_PROFILE" \
     --wait
   xcrun stapler staple "$SOURCE_APP"
@@ -240,20 +240,20 @@ elif [[ "$EXTERNAL_ONLY" == false ]]; then
     --force \
     --sign - \
     --timestamp=none \
-    --entitlements native/macos/DevStackVMM/devstack-vmm.entitlements \
-    "$RESOURCES/devstack-vmm"
+    --entitlements native/macos/DockivaVMM/dockiva-vmm.entitlements \
+    "$RESOURCES/dockiva-vmm"
   codesign --force --sign - --timestamp=none "$SOURCE_APP"
 fi
 
 DIST_DIR="dist/macos-$ARCH"
-DIST_APP="$DIST_DIR/DevStack.app"
+DIST_APP="$DIST_DIR/Dockiva.app"
 mkdir -p "$DIST_DIR"
 rm -rf -- "$DIST_APP"
 ditto "$SOURCE_APP" "$DIST_APP"
 
 if [[ "$INSTALL" == true ]]; then
   INSTALL_DIR="$HOME/Applications"
-  INSTALL_APP="$INSTALL_DIR/DevStack.app"
+  INSTALL_APP="$INSTALL_DIR/Dockiva.app"
   mkdir -p "$INSTALL_DIR"
   rm -rf -- "$INSTALL_APP"
   ditto "$DIST_APP" "$INSTALL_APP"
@@ -263,7 +263,7 @@ fi
 if [[ "$RELEASE" == true || "$UNSIGNED_RELEASE" == true ]]; then
   echo "Creating release DMG..."
   wails3 task darwin:create:dmg
-  RELEASE_DMG="bin/devstack.dmg"
+  RELEASE_DMG="bin/dockiva.dmg"
   if [[ ! -f "$RELEASE_DMG" ]]; then
     echo "Expected release DMG was not created at $RELEASE_DMG" >&2
     exit 1
@@ -278,10 +278,10 @@ if [[ "$RELEASE" == true || "$UNSIGNED_RELEASE" == true ]]; then
     xcrun stapler staple "$RELEASE_DMG"
     xcrun stapler validate "$RELEASE_DMG"
   fi
-  VERSIONED_DMG="$DIST_DIR/DevStack-$APP_VERSION-macOS-$ARCH.dmg"
+  VERSIONED_DMG="$DIST_DIR/Dockiva-$APP_VERSION-macOS-$ARCH.dmg"
   cp -f "$RELEASE_DMG" "$VERSIONED_DMG"
 
-  UPDATE_ARCHIVE="$DIST_DIR/DevStack-$APP_VERSION-darwin-$ARCH.zip"
+  UPDATE_ARCHIVE="$DIST_DIR/Dockiva-$APP_VERSION-darwin-$ARCH.zip"
   rm -f -- "$UPDATE_ARCHIVE"
   ditto -c -k --keepParent "$DIST_APP" "$UPDATE_ARCHIVE"
   (
@@ -293,7 +293,7 @@ fi
 echo
 echo "Built: $DIST_APP"
 if [[ "$EXTERNAL_ONLY" == false ]]; then
-  echo "Included: devstack-vmm, vmlinux, rootfs.ext4"
+  echo "Included: dockiva-vmm, vmlinux, rootfs.ext4"
   echo "The guest assets are copied to Application Support on first native-engine start."
 else
   echo "External Docker-only build; native VM assets were not included."

@@ -43,7 +43,7 @@ func main() {
 	defer listener.Close()
 
 	log.Printf(
-		"devstack-guestd: vsock:%d -> unix:%s",
+		"dockiva-guestd: vsock:%d -> unix:%s",
 		*port,
 		*target,
 	)
@@ -77,7 +77,7 @@ func proxy(
 	if err != nil {
 		_, _ = fmt.Fprintf(
 			os.Stderr,
-			"devstack-guestd: dial %s: %v\n",
+			"dockiva-guestd: dial %s: %v\n",
 			target,
 			err,
 		)

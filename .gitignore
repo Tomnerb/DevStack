@@ -6,7 +6,7 @@
 /bin/
 /dist/
 /.task/
-/native/macos/DevStackVMM/.build/
+/native/macos/DockivaVMM/.build/
 /macos-guest/
 /build/.swift-module-cache/
 /build/.generated/

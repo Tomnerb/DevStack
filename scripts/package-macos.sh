@@ -9,7 +9,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
-echo "Packaging universal DevStack.app (Apple Silicon + Intel)..."
+echo "Packaging universal Dockiva.app (Apple Silicon + Intel)..."
 wails3 task darwin:package:universal
 
 echo

@@ -191,7 +191,7 @@ tasks:
       - wails3 generate bindings -f '{{.BUILD_FLAGS}}' -clean=true{{if eq .OBFUSCATED "true"}} -obfuscated{{end}} -ts -i
 
   generate:icons:
-    summary: Generates Windows `.ico` and Mac `.icns` from the DevStack app icon.
+    summary: Generates Windows `.ico` and Mac `.icns` from the Dockiva app icon.
     run: once
     dir: build
     sources:

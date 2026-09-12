@@ -14,7 +14,7 @@ import (
 	"github.com/moby/moby/client"
 )
 
-const devstackWSLPort = 23750
+const dockivaWSLPort = 23750
 
 type windowsEngineBackend struct{}
 
@@ -42,7 +42,7 @@ func (backend windowsEngineBackend) Status(
 		Backend:    "wsl2",
 		Platform:   "windows",
 		Supported:  true,
-		Message:    "DevStack-managed Docker bridge through WSL2.",
+		Message:    "Dockiva-managed Docker bridge through WSL2.",
 		WSLDistros: listWSLDistros(),
 	}
 
@@ -91,12 +91,12 @@ func (backend windowsEngineBackend) Status(
 
 	status.Endpoint = fmt.Sprintf(
 		"tcp://127.0.0.1:%d",
-		devstackWSLPort,
+		dockivaWSLPort,
 	)
 
 	probe, err := client.New(
 		client.WithHost(status.Endpoint),
-		client.WithUserAgent("devstack/0.9.0"),
+		client.WithUserAgent("dockiva/0.9.0"),
 	)
 	if err == nil {
 		ctx, cancel := context.WithTimeout(
@@ -118,9 +118,9 @@ func (backend windowsEngineBackend) Status(
 	}
 
 	if status.Running {
-		status.Message = "DevStack's WSL2 Docker bridge is reachable."
+		status.Message = "Dockiva's WSL2 Docker bridge is reachable."
 	} else if status.EngineInstalled {
-		status.Message = "Docker is provisioned; start the DevStack WSL bridge."
+		status.Message = "Docker is provisioned; start the Dockiva WSL bridge."
 	} else {
 		status.Message = "Docker and socat are not provisioned in this WSL distribution."
 	}
@@ -154,10 +154,10 @@ func (backend windowsEngineBackend) Start(
 	}
 
 	script := fmt.Sprintf(
-		`(systemctl start docker || service docker start || true); pkill -f 'socat TCP-LISTEN:%d' >/dev/null 2>&1 || true; nohup socat TCP-LISTEN:%d,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/var/run/docker.sock >/tmp/devstack-socat.log 2>&1 & sleep 1; docker info >/dev/null 2>&1; echo "DevStack Docker bridge listening on 127.0.0.1:%d"`,
-		devstackWSLPort,
-		devstackWSLPort,
-		devstackWSLPort,
+		`(systemctl start docker || service docker start || true); pkill -f 'socat TCP-LISTEN:%d' >/dev/null 2>&1 || true; nohup socat TCP-LISTEN:%d,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/var/run/docker.sock >/tmp/dockiva-socat.log 2>&1 & sleep 1; docker info >/dev/null 2>&1; echo "Dockiva Docker bridge listening on 127.0.0.1:%d"`,
+		dockivaWSLPort,
+		dockivaWSLPort,
+		dockivaWSLPort,
 	)
 
 	output, err := runCommand(
@@ -182,7 +182,7 @@ func (backend windowsEngineBackend) Start(
 
 	endpoint := fmt.Sprintf(
 		"tcp://127.0.0.1:%d",
-		devstackWSLPort,
+		dockivaWSLPort,
 	)
 
 	var lastErr error
@@ -205,12 +205,12 @@ func (backend windowsEngineBackend) Start(
 	}
 
 	return EngineActionResult{
-		Status: backend.Status(service, distro),
-		Output: output,
-	}, fmt.Errorf(
-		"WSL bridge started but Docker API is not reachable: %w",
-		lastErr,
-	)
+			Status: backend.Status(service, distro),
+			Output: output,
+		}, fmt.Errorf(
+			"WSL bridge started but Docker API is not reachable: %w",
+			lastErr,
+		)
 }
 
 func (backend windowsEngineBackend) Stop(
@@ -244,7 +244,7 @@ func (backend windowsEngineBackend) Stop(
 		"-lc",
 		fmt.Sprintf(
 			"pkill -f 'socat TCP-LISTEN:%d' >/dev/null 2>&1 || true; echo bridge-stopped",
-			devstackWSLPort,
+			dockivaWSLPort,
 		),
 	)
 	if err == nil {
@@ -262,10 +262,10 @@ func (backend windowsEngineBackend) Delete(
 	distro string,
 ) (EngineActionResult, error) {
 	return EngineActionResult{
-		Status: backend.Status(service, distro),
-	}, errors.New(
-		"DevStack will not unregister or delete a user's WSL distribution",
-	)
+			Status: backend.Status(service, distro),
+		}, errors.New(
+			"Dockiva will not unregister or delete a user's WSL distribution",
+		)
 }
 
 func (backend windowsEngineBackend) Provision(
@@ -282,10 +282,10 @@ func (backend windowsEngineBackend) Provision(
 	wsl, err := exec.LookPath("wsl.exe")
 	if err != nil {
 		return EngineActionResult{
-			Status: backend.Status(service, distro),
-		}, errors.New(
-			"WSL is not installed; use elevated PowerShell: wsl --install",
-		)
+				Status: backend.Status(service, distro),
+			}, errors.New(
+				"WSL is not installed; use elevated PowerShell: wsl --install",
+			)
 	}
 
 	script := `. /etc/os-release; case "${ID:-}:${ID_LIKE:-}" in *ubuntu*|*debian*) ;; *) echo "Automatic provisioning supports Ubuntu/Debian-family WSL distributions."; exit 64;; esac; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y docker.io socat; (systemctl enable --now docker || service docker start || true); docker info >/dev/null 2>&1; echo "Docker Engine and socat are ready."`

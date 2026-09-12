@@ -5,12 +5,12 @@ PATCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET="${1:-}"
 
 if [[ -z "$TARGET" ]]; then
-  echo "Usage: ./apply.sh /path/to/devstack"
+  echo "Usage: ./apply.sh /path/to/dockiva"
   exit 1
 fi
 
 if [[ ! -f "$TARGET/docker_service.go" ]] || [[ ! -f "$TARGET/frontend/src/App.vue" ]]; then
-  echo "Error: '$TARGET' does not look like the DevStack project."
+  echo "Error: '$TARGET' does not look like the Dockiva project."
   exit 1
 fi
 
@@ -29,4 +29,4 @@ echo "Next:"
 echo "  cd \"$TARGET\""
 echo "  go mod tidy"
 echo "  wails3 build -tags gtk3"
-echo "  ./bin/devstack"
+echo "  ./bin/dockiva"

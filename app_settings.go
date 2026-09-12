@@ -36,14 +36,25 @@ func NewAppService() (*AppService, error) {
 		return nil, err
 	}
 
-	path := filepath.Join(configDir, "DevStack", "settings.json")
+	path := filepath.Join(configDir, "Dockiva", "settings.json")
 	defaults := defaultAppSettings()
 	service := &AppService{
 		path:     path,
 		settings: defaults,
 	}
 
-	if data, err := os.ReadFile(path); err == nil {
+	data, readErr := os.ReadFile(path)
+	migratedLegacySettings := false
+	if errors.Is(readErr, os.ErrNotExist) {
+		legacyPath := filepath.Join(configDir, "DevStack", "settings.json")
+		if legacyData, legacyErr := os.ReadFile(legacyPath); legacyErr == nil {
+			data = legacyData
+			readErr = nil
+			migratedLegacySettings = true
+		}
+	}
+
+	if readErr == nil {
 		var versionProbe struct {
 			SettingsVersion int `json:"settingsVersion"`
 		}
@@ -68,6 +79,11 @@ func NewAppService() (*AppService, error) {
 		}
 
 		service.settings = mergeAppSettings(defaults, loaded)
+		if migratedLegacySettings {
+			if err := service.persist(); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	return service, nil
@@ -86,7 +102,7 @@ func defaultAppSettings() AppSettings {
 	case "windows":
 		backend = "wsl2"
 		runtimeProvider = "docker"
-		wslDistro = "DevStack"
+		wslDistro = "Dockiva"
 	}
 
 	return AppSettings{
@@ -96,7 +112,7 @@ func defaultAppSettings() AppSettings {
 		WSLDistro:           wslDistro,
 		CloseToTray:         true,
 		AutoReconnectEngine: true,
-		// A fresh installation should be usable by opening DevStack, not by
+		// A fresh installation should be usable by opening Dockiva, not by
 		// asking the user to run a separate start command. Existing settings are
 		// preserved during migration.
 		StartEngineOnLaunch: true,
@@ -168,7 +184,7 @@ func (s *AppService) UpdateSettings(next AppSettings) error {
 
 	if next.StartAtLogin {
 		return app.Autostart.EnableWithOptions(application.AutostartOptions{
-			Identifier: "com.devstack.app",
+			Identifier: "com.tomnerb.dockiva",
 			Arguments:  []string{"--hidden"},
 		})
 	}

@@ -35,8 +35,8 @@ export function ConfigureDockerEndpoint(endpoint: string): $CancellablePromise<v
 
 /**
  * ConfigureNativeDockerEndpoint selects the Docker API exposed by a
- * DevStack-owned VM without overwriting the user's saved External Docker
- * identity. This keeps Docker Desktop and DevStack Native separate stores.
+ * Dockiva-owned VM without overwriting the user's saved External Docker
+ * identity. This keeps Docker Desktop and Dockiva Native separate stores.
  */
 export function ConfigureNativeDockerEndpoint(endpoint: string): $CancellablePromise<void> {
     return $Call.ByID(106058481, endpoint);
@@ -135,14 +135,14 @@ export function ListWSLDistros(): $CancellablePromise<string[] | null> {
 }
 
 /**
- * MigrateDockerContainers copies stopped Docker containers into DevStack Native.
+ * MigrateDockerContainers copies stopped Docker containers into Dockiva Native.
  */
 export function MigrateDockerContainers(): $CancellablePromise<$models.DockerCLIResult> {
     return $Call.ByID(2941007034);
 }
 
 /**
- * MigrateDockerImages copies Docker images into the DevStack Native containerd
+ * MigrateDockerImages copies Docker images into the Dockiva Native containerd
  * namespace one at a time. This avoids a single giant archive, gives the user
  * meaningful progress, and never modifies the source Docker store.
  */
@@ -151,7 +151,7 @@ export function MigrateDockerImages(): $CancellablePromise<$models.DockerCLIResu
 }
 
 /**
- * MigrateDockerVolumes copies local Docker named-volume data into DevStack's
+ * MigrateDockerVolumes copies local Docker named-volume data into Dockiva's
  * managed volume store. It never stops containers or deletes Docker volumes.
  */
 export function MigrateDockerVolumes(): $CancellablePromise<$models.DockerCLIResult> {
@@ -275,7 +275,7 @@ export function StartDockerImageMigration(): $CancellablePromise<$models.DockerM
 
 /**
  * StartLogStream follows Docker logs until StopLogStream is called or the
- * container log stream ends. Output is emitted as "devstack:log-output".
+ * container log stream ends. Output is emitted as "dockiva:log-output".
  */
 export function StartLogStream(containerID: string, tail: number): $CancellablePromise<string> {
     return $Call.ByID(1202017299, containerID, tail);
@@ -287,7 +287,7 @@ export function StartManagedEngine(backend: string, platformOption: string): $Ca
 
 /**
  * StartTerminal creates a persistent /bin/sh exec session with a TTY.
- * The frontend receives output through the "devstack:terminal-output" event.
+ * The frontend receives output through the "dockiva:terminal-output" event.
  */
 export function StartTerminal(containerID: string): $CancellablePromise<string> {
     return $Call.ByID(2636107271, containerID);

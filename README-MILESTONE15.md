@@ -1,4 +1,4 @@
-# DevStack — Milestone 15: Grouped tray containers
+# Dockiva — Milestone 15: Grouped tray containers
 
 Milestone 15 changes the tray from a flat container list to the same grouping
 model used by the main Containers screen.
@@ -113,7 +113,7 @@ max containers shown per group:      8
 When a group has more containers, the tray offers:
 
 ```text
-Open DevStack to view N more…
+Open Dockiva to view N more…
 ```
 
 The full Containers page remains the place for large environments.
@@ -121,18 +121,18 @@ The full Containers page remains the place for large environments.
 ## Apply
 
 ```bash
-chmod +x devstack-milestone15/apply.sh
+chmod +x dockiva-milestone15/apply.sh
 
-./devstack-milestone15/apply.sh \
-  /home/darith/mbanq/devstack/devstack
+./dockiva-milestone15/apply.sh \
+  /home/darith/mbanq/dockiva/dockiva
 ```
 
 Then:
 
 ```bash
-cd /home/darith/mbanq/devstack/devstack
+cd /home/darith/mbanq/dockiva/dockiva
 
 go mod tidy
 wails3 build -tags gtk3
-./bin/devstack
+./bin/dockiva
 ```

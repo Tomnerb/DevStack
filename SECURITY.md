@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-DevStack is currently an early-access project. Security fixes are applied to
+Dockiva is currently an early-access project. Security fixes are applied to
 the latest release and the `main` branch. Older releases are not maintained.
 
 ## Reporting a vulnerability
@@ -29,5 +29,5 @@ credentials are configured and otherwise are published as explicitly documented
 ad-hoc-signed builds. Windows artifacts are Authenticode-signed when release
 credentials are configured and otherwise are published as explicitly documented
 unsigned builds. Automatic-update archives
-must have a matching entry in the release's `SHA256SUMS`; DevStack rejects an
+must have a matching entry in the release's `SHA256SUMS`; Dockiva rejects an
 update when that checksum is missing or invalid.

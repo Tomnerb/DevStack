@@ -1,4 +1,4 @@
-# DevStack — Milestone 16 Combined Runtime Release
+# Dockiva — Milestone 16 Combined Runtime Release
 
 This cumulative package combines the planned Milestones 16, 17, and 18 work
 into one development release.
@@ -10,7 +10,7 @@ The native `Virtualization.framework` backend from Milestone 13 is preserved.
 Added:
 
 - VirtioFS sharing for `~/Projects`
-- guest mount point `/mnt/devstack/host`
+- guest mount point `/mnt/dockiva/host`
 - existing minimal Linux + containerd design remains
 - no Lima requirement for native mode
 - no Docker Desktop requirement for native mode
@@ -20,7 +20,7 @@ The macOS VMM still needs a real compile/boot validation on macOS because
 
 ## 16B — direct containerd developer tools
 
-Linux direct-containerd now integrates with the existing DevStack UI APIs for:
+Linux direct-containerd now integrates with the existing Dockiva UI APIs for:
 
 - live stdout/stderr logs for newly started direct-containerd tasks
 - interactive xterm `/bin/sh`
@@ -32,12 +32,12 @@ Linux direct-containerd now integrates with the existing DevStack UI APIs for:
 The existing Docker/Moby implementations remain unchanged.
 
 Important: containers whose tasks were already running before this milestone
-may not have DevStack-managed log files. Restart them once after applying the
+may not have Dockiva-managed log files. Restart them once after applying the
 milestone to enable the new log capture path.
 
 ## 16C — dedicated Windows WSL2 foundation
 
-The package adds a DevStack-owned WSL2 rootfs workflow so future Windows
+The package adds a Dockiva-owned WSL2 rootfs workflow so future Windows
 containerd support does not need to modify a user's Ubuntu/Debian distro.
 
 Build the rootfs on Linux:
@@ -49,20 +49,20 @@ Build the rootfs on Linux:
 This creates:
 
 ```text
-dist/windows-wsl/devstack-wsl-rootfs.tar
+dist/windows-wsl/dockiva-wsl-rootfs.tar
 ```
 
 Install it on Windows:
 
 ```powershell
-.\scripts\install-devstack-wsl.ps1 `
-  -Rootfs C:\path\devstack-wsl-rootfs.tar
+.\scripts\install-dockiva-wsl.ps1 `
+  -Rootfs C:\path\dockiva-wsl-rootfs.tar
 ```
 
 The dedicated distro name is:
 
 ```text
-DevStack
+Dockiva
 ```
 
 This Windows path is still experimental and needs a real WSL2 target test.
@@ -71,8 +71,8 @@ This Windows path is still experimental and needs a real WSL2 target test.
 
 Milestone 16 is based on the latest Milestone 15 tray-fixed package:
 
-- clicking the tray icon does not open/toggle DevStack
-- `Show DevStack` is explicit
+- clicking the tray icon does not open/toggle Dockiva
+- `Show Dockiva` is explicit
 - Compose projects are grouped in the tray
 - non-Compose containers are under `Standalone Containers`
 - tray refresh is event-driven rather than every 5 seconds
@@ -80,20 +80,20 @@ Milestone 16 is based on the latest Milestone 15 tray-fixed package:
 ## Apply
 
 ```bash
-chmod +x devstack-milestone16/apply.sh
+chmod +x dockiva-milestone16/apply.sh
 
-./devstack-milestone16/apply.sh \
-  /home/darith/mbanq/devstack/devstack
+./dockiva-milestone16/apply.sh \
+  /home/darith/mbanq/dockiva/dockiva
 ```
 
 Then:
 
 ```bash
-cd /home/darith/mbanq/devstack/devstack
+cd /home/darith/mbanq/dockiva/dockiva
 
 go mod tidy
 wails3 build -tags gtk3
-./bin/devstack
+./bin/dockiva
 ```
 
 ## Validation performed on the package

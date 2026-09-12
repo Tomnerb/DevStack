@@ -28,12 +28,12 @@ import (
 )
 
 const (
-	defaultSocket    = "/run/devstack/netd.sock"
-	defaultStateDir  = "/var/lib/devstack/networks"
-	defaultCNIConfig = "/etc/cni/net.d/10-devstack.conflist"
+	defaultSocket    = "/run/dockiva/netd.sock"
+	defaultStateDir  = "/var/lib/dockiva/networks"
+	defaultCNIConfig = "/etc/cni/net.d/10-dockiva.conflist"
 
-	networkName   = "devstack-net"
-	bridgeName    = "devstack0"
+	networkName   = "dockiva-net"
+	bridgeName    = "dockiva0"
 	networkSubnet = "10.89.0.0/16"
 )
 
@@ -58,7 +58,7 @@ type removeRequest struct {
 }
 
 // containerCreateRequest is intentionally narrow: the privileged helper only
-// creates DevStack-labelled containers in its own namespace. It never accepts
+// creates Dockiva-labelled containers in its own namespace. It never accepts
 // arbitrary shell input.
 type containerCreateRequest struct {
 	ID          string   `json:"id"`
@@ -164,7 +164,7 @@ func main() {
 	flag.Parse()
 
 	if os.Geteuid() != 0 {
-		fatal(errors.New("devstack-netd must run as root"))
+		fatal(errors.New("dockiva-netd must run as root"))
 	}
 
 	if _, err := exec.LookPath("ip"); err != nil {
@@ -264,7 +264,7 @@ func (s *server) handleImageImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	archive := filepath.Clean(request.Archive)
-	if !strings.HasPrefix(archive, "/tmp/devstack-docker-images-") || !strings.HasSuffix(archive, ".tar") {
+	if !strings.HasPrefix(archive, "/tmp/dockiva-docker-images-") || !strings.HasSuffix(archive, ".tar") {
 		http.Error(w, "invalid migration archive", http.StatusBadRequest)
 		return
 	}
@@ -273,12 +273,12 @@ func (s *server) handleImageImport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "migration archive is unavailable or invalid", http.StatusBadRequest)
 		return
 	}
-	output, err := exec.Command("ctr", "--address", "/run/containerd/containerd.sock", "--namespace", "devstack", "images", "import", archive).CombinedOutput()
+	output, err := exec.Command("ctr", "--address", "/run/containerd/containerd.sock", "--namespace", "dockiva", "images", "import", archive).CombinedOutput()
 	if err != nil {
 		http.Error(w, strings.TrimSpace(string(output)), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Docker images imported into DevStack Native"})
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Docker images imported into Dockiva Native"})
 }
 
 // handleImageUpload receives an archive over the Unix socket instead of a
@@ -304,12 +304,12 @@ func (s *server) handleImageUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not receive migration archive", http.StatusBadRequest)
 		return
 	}
-	output, err := exec.Command("ctr", "--address", "/run/containerd/containerd.sock", "--namespace", "devstack", "images", "import", archivePath).CombinedOutput()
+	output, err := exec.Command("ctr", "--address", "/run/containerd/containerd.sock", "--namespace", "dockiva", "images", "import", archivePath).CombinedOutput()
 	if err != nil {
 		http.Error(w, strings.TrimSpace(string(output)), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Docker image imported into DevStack Native"})
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Docker image imported into Dockiva Native"})
 }
 
 func (s *server) handleVolumeCopy(w http.ResponseWriter, r *http.Request) {
@@ -335,7 +335,7 @@ func (s *server) handleVolumeCopy(w http.ResponseWriter, r *http.Request) {
 	}
 	destination := filepath.Join(filepath.Dir(s.stateDir), "volumes", name)
 	if err := os.MkdirAll(destination, 0o750); err != nil {
-		http.Error(w, "could not create DevStack volume", http.StatusInternalServerError)
+		http.Error(w, "could not create Dockiva volume", http.StatusInternalServerError)
 		return
 	}
 	// Archive streaming preserves file modes and avoids placing user-controlled
@@ -381,7 +381,7 @@ func (s *server) handleVolumeUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	destination := filepath.Join(filepath.Dir(s.stateDir), "volumes", name)
 	if err := os.MkdirAll(destination, 0o750); err != nil {
-		http.Error(w, "could not create DevStack volume", http.StatusInternalServerError)
+		http.Error(w, "could not create Dockiva volume", http.StatusInternalServerError)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 40<<30)
@@ -438,7 +438,7 @@ func (s *server) handleVolumes(w http.ResponseWriter, r *http.Request) {
 			Mountpoint: mountpoint,
 			CreatedAt:  info.ModTime().Format(time.RFC3339),
 			Labels: map[string]string{
-				"devstack.io/managed": "true",
+				"dockiva.io/managed": "true",
 			},
 		})
 	}
@@ -514,10 +514,10 @@ func (s *server) handleContainerCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	var args []string
 	if request.AutoStart {
-		args = []string{"--address", "/run/containerd/containerd.sock", "--namespace", "devstack", "run", "--detach", "--snapshotter", request.Snapshotter, "--label", "devstack.io/managed=true", request.Image, request.ID}
+		args = []string{"--address", "/run/containerd/containerd.sock", "--namespace", "dockiva", "run", "--detach", "--snapshotter", request.Snapshotter, "--label", "dockiva.io/managed=true", request.Image, request.ID}
 		args = append(args, request.Command...)
 	} else {
-		args = []string{"--address", "/run/containerd/containerd.sock", "--namespace", "devstack", "container", "create", "--snapshotter", request.Snapshotter, "--label", "devstack.io/managed=true", request.Image, request.ID}
+		args = []string{"--address", "/run/containerd/containerd.sock", "--namespace", "dockiva", "container", "create", "--snapshotter", request.Snapshotter, "--label", "dockiva.io/managed=true", request.Image, request.ID}
 		args = append(args, request.Command...)
 	}
 	output, err := exec.Command("ctr", args...).CombinedOutput()
@@ -560,7 +560,7 @@ func (s *server) handleTerminalOpen(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid container id", 400)
 		return
 	}
-	cli, err := containerd.New("/run/containerd/containerd.sock", containerd.WithDefaultNamespace("devstack"))
+	cli, err := containerd.New("/run/containerd/containerd.sock", containerd.WithDefaultNamespace("dockiva"))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -572,9 +572,9 @@ func (s *server) handleTerminalOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info, err := container.Info(r.Context())
-	if err != nil || info.Labels["devstack.io/managed"] != "true" {
+	if err != nil || info.Labels["dockiva.io/managed"] != "true" {
 		cli.Close()
-		http.Error(w, "container is not DevStack-managed", 403)
+		http.Error(w, "container is not Dockiva-managed", 403)
 		return
 	}
 	task, err := container.Task(r.Context(), nil)
@@ -593,7 +593,7 @@ func (s *server) handleTerminalOpen(w http.ResponseWriter, r *http.Request) {
 	processSpec.Terminal = true
 	processSpec.Args = []string{"/bin/sh", "-i"}
 	processSpec.Cwd = "/"
-	processSpec.Env = append(processSpec.Env, "TERM=xterm-256color", "PS1=devstack$ ")
+	processSpec.Env = append(processSpec.Env, "TERM=xterm-256color", "PS1=dockiva$ ")
 	processSpec.ConsoleSize = &specs.Box{Width: request.Width, Height: request.Height}
 	if processSpec.ConsoleSize.Width == 0 {
 		processSpec.ConsoleSize.Width = 120
@@ -610,7 +610,7 @@ func (s *server) handleTerminalOpen(w http.ResponseWriter, r *http.Request) {
 	session := fmt.Sprintf("%x", bytes)
 	inR, inW := io.Pipe()
 	out := &terminalBuffer{}
-	creator := cio.NewCreator(cio.WithStreams(inR, out, out), cio.WithTerminal, cio.WithFIFODir("/run/devstack/fifo"))
+	creator := cio.NewCreator(cio.WithStreams(inR, out, out), cio.WithTerminal, cio.WithFIFODir("/run/dockiva/fifo"))
 	process, err := task.Exec(r.Context(), session, &processSpec, creator)
 	if err != nil {
 		cli.Close()
@@ -781,7 +781,7 @@ func (s *server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	labels := map[string]string{
-		"K8S_POD_NAMESPACE":          "devstack",
+		"K8S_POD_NAMESPACE":          "dockiva",
 		"K8S_POD_NAME":               request.ID,
 		"K8S_POD_INFRA_CONTAINER_ID": request.ID,
 		"IgnoreUnknown":              "1",
@@ -909,7 +909,7 @@ func (s *server) removeNetwork(ctx context.Context, networkState state) error {
 	}
 
 	labels := map[string]string{
-		"K8S_POD_NAMESPACE":          "devstack",
+		"K8S_POD_NAMESPACE":          "dockiva",
 		"K8S_POD_NAME":               networkState.ID,
 		"K8S_POD_INFRA_CONTAINER_ID": networkState.ID,
 		"IgnoreUnknown":              "1",
@@ -1024,7 +1024,7 @@ func (s *server) checkPortConflicts(id string, mappings []portMapping) error {
 	for _, mapping := range mappings {
 		if owner, exists := used[mapping.HostPort]; exists {
 			return fmt.Errorf(
-				"host port %d is already published by DevStack container %s",
+				"host port %d is already published by Dockiva container %s",
 				mapping.HostPort,
 				owner,
 			)
@@ -1076,7 +1076,7 @@ func extractIPAddress(result *gocni.Result) string {
 }
 
 func networkNamespaceName(id string) string {
-	value := "devstack-" + id
+	value := "dockiva-" + id
 	if len(value) > 63 {
 		value = value[:63]
 	}
@@ -1156,9 +1156,9 @@ func discoverPluginDirs() []string {
 }
 
 func applySocketPermissions(path string) error {
-	group, err := user.LookupGroup("devstack")
+	group, err := user.LookupGroup("dockiva")
 	if err != nil {
-		return errors.New("system group 'devstack' does not exist")
+		return errors.New("system group 'dockiva' does not exist")
 	}
 
 	gid, err := strconv.Atoi(group.Gid)
@@ -1189,6 +1189,6 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 }
 
 func fatal(err error) {
-	fmt.Fprintln(os.Stderr, "devstack-netd:", err)
+	fmt.Fprintln(os.Stderr, "dockiva-netd:", err)
 	os.Exit(1)
 }

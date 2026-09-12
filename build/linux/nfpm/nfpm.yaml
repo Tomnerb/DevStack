@@ -3,26 +3,26 @@
 #
 # The lines below are called `modelines`. See `:help modeline`
 
-name: "devstack"
+name: "dockiva"
 arch: ${GOARCH}
 platform: "linux"
 version: "0.1.0"
 section: "default"
 priority: "extra"
 maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
-description: "A devstack application"
-vendor: "My Company"
-homepage: "https://wails.io"
-license: "MIT"
+description: "A native container workspace for macOS, Linux, and Windows"
+vendor: "Tomnerb"
+homepage: "https://tomnerb.com/dockiva"
+license: "Apache-2.0"
 release: "1"
 
 contents:
-  - src: "./bin/devstack"
-    dst: "/usr/local/bin/devstack"
+  - src: "./bin/dockiva"
+    dst: "/usr/local/bin/dockiva"
   - src: "./build/appicon.png"
-    dst: "/usr/share/icons/hicolor/128x128/apps/devstack.png"
-  - src: "./build/linux/devstack.desktop"
-    dst: "/usr/share/applications/devstack.desktop"
+    dst: "/usr/share/icons/hicolor/128x128/apps/dockiva.png"
+  - src: "./build/linux/dockiva.desktop"
+    dst: "/usr/share/applications/dockiva.desktop"
 
 # Default dependencies for the GTK4 + WebKitGTK 6.0 stack (Ubuntu 24.04+ / Debian 13+)
 depends:

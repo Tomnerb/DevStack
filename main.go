@@ -14,7 +14,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-//go:embed assets/devstack_icon2.png
+//go:embed assets/dockiva_icon2.png
 var trayIcon []byte
 
 func main() {
@@ -67,7 +67,7 @@ func main() {
 	startHidden := settings.StartHidden || hasArg("--hidden")
 
 	app := application.New(application.Options{
-		Name:        "DevStack",
+		Name:        "Dockiva",
 		Description: "Fast cross-platform container development environment",
 		Services: []application.Service{
 			application.NewService(dockerService),
@@ -79,7 +79,7 @@ func main() {
 	})
 
 	githubUpdates, err := github.New(github.Config{
-		Repository:    "Tomnerb/DevStack",
+		Repository:    "Tomnerb/Dockiva",
 		ChecksumAsset: "SHA256SUMS",
 	})
 	if err != nil {
@@ -97,7 +97,7 @@ func main() {
 
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:           "main",
-		Title:          "DevStack",
+		Title:          "Dockiva",
 		Width:          1320,
 		Height:         820,
 		MinWidth:       980,
@@ -115,7 +115,7 @@ func main() {
 	window.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
 		files := event.Context().DroppedFiles()
 		if len(files) > 0 {
-			app.Event.Emit("devstack:files-dropped", files)
+			app.Event.Emit("dockiva:files-dropped", files)
 		}
 	})
 

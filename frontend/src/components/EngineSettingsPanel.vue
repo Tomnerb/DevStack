@@ -153,10 +153,10 @@ function formatUpdateBytes(value: number) {
 
 const backendOptions = computed(() => {
   const native = props.platform?.os === 'darwin'
-    ? { value: 'vz', title: 'DevStack Native', desc: 'Run a minimal Linux guest with Apple Virtualization.framework.' }
+    ? { value: 'vz', title: 'Dockiva Native', desc: 'Run a minimal Linux guest with Apple Virtualization.framework.' }
     : props.platform?.os === 'windows'
-      ? { value: 'wsl2', title: 'DevStack Native', desc: 'Run the dedicated DevStack engine with WSL2.' }
-      : { value: 'native', title: 'DevStack Native', desc: 'Use direct containerd in the dedicated devstack namespace.' }
+      ? { value: 'wsl2', title: 'Dockiva Native', desc: 'Run the dedicated Dockiva engine with WSL2.' }
+      : { value: 'native', title: 'Dockiva Native', desc: 'Use direct containerd in the dedicated dockiva namespace.' }
 
   return [
     native,
@@ -234,7 +234,7 @@ async function chooseDistro(value: string) {
 async function runAction(action: 'start' | 'stop' | 'delete' | 'provision') {
   if (busy.value) return
 
-  if (action === 'delete' && !window.confirm('Delete the DevStack native VM and its local container data?')) return
+  if (action === 'delete' && !window.confirm('Delete the Dockiva native VM and its local container data?')) return
   if (action === 'provision' && !window.confirm(`Install Docker Engine and socat inside WSL distro "${settings.value.wslDistro}"?`)) return
 
   busy.value = action
@@ -387,7 +387,7 @@ onBeforeUnmount(() => {
       <div class="flex items-start justify-between gap-4">
         <div>
           <h3 class="font-semibold">Container Engine</h3>
-          <p class="mt-1 text-sm text-zinc-500">Connect to an existing Docker endpoint or let DevStack manage a lightweight backend.</p>
+          <p class="mt-1 text-sm text-zinc-500">Connect to an existing Docker endpoint or let Dockiva manage a lightweight backend.</p>
         </div>
         <button class="toolbar-button" :disabled="loading || !!busy" @click="refresh">{{ loading ? 'Checking…' : 'Refresh Status' }}</button>
       </div>
@@ -430,7 +430,7 @@ onBeforeUnmount(() => {
           </select>
           <button class="toolbar-button" :disabled="!settings.wslDistro || !!busy" @click="runAction('provision')">{{ busy === 'provision' ? 'Provisioning…' : 'Provision Docker' }}</button>
         </div>
-        <p class="mt-2 text-xs text-zinc-600">A dedicated Ubuntu/Debian WSL distro is recommended. DevStack never unregisters it.</p>
+        <p class="mt-2 text-xs text-zinc-600">A dedicated Ubuntu/Debian WSL distro is recommended. Dockiva never unregisters it.</p>
       </div>
 
       <div v-if="status" class="engine-status mt-5 rounded-xl border border-zinc-800 bg-black/20 p-5">
@@ -438,7 +438,7 @@ onBeforeUnmount(() => {
           <div class="flex items-center gap-3">
             <span class="h-3 w-3 rounded-full" :class="status.running ? 'bg-emerald-500' : 'bg-zinc-600'" />
             <div>
-              <div class="font-medium">{{ status.running ? 'Engine running' : settings.engineBackend === 'external' ? 'External Docker offline' : 'DevStack engine stopped' }}</div>
+              <div class="font-medium">{{ status.running ? 'Engine running' : settings.engineBackend === 'external' ? 'External Docker offline' : 'Dockiva engine stopped' }}</div>
               <div class="mt-0.5 text-xs text-zinc-500">{{ status.message }}</div>
               <div
                 v-if="settings.engineBackend === 'external' && dockerIdentity?.endpoint"
@@ -470,7 +470,7 @@ onBeforeUnmount(() => {
               :disabled="!!busy"
               @click="runAction('start')"
             >
-              {{ busy === 'start' ? 'Starting engine…' : 'Start DevStack Engine' }}
+              {{ busy === 'start' ? 'Starting engine…' : 'Start Dockiva Engine' }}
             </button>
             <button v-if="status.running && ['vz','wsl2'].includes(settings.engineBackend)" class="toolbar-button" :disabled="!!busy" @click="runAction('stop')">{{ busy === 'stop' ? 'Stopping…' : 'Stop Managed Engine' }}</button>
             <button v-if="settings.engineBackend === 'vz' && status.engineInstalled" class="danger-button" :disabled="!!busy" @click="runAction('delete')">Delete VM</button>
@@ -605,7 +605,7 @@ onBeforeUnmount(() => {
       </div>
 
       <p class="mt-4 text-xs leading-5 text-zinc-600">
-        On Linux, direct containerd uses the dedicated devstack namespace. CNI bridge networking, host DNS, and localhost TCP port publishing become available after the one-time networking helper is installed.
+        On Linux, direct containerd uses the dedicated dockiva namespace. CNI bridge networking, host DNS, and localhost TCP port publishing become available after the one-time networking helper is installed.
       </p>
     </section>
 
@@ -627,9 +627,9 @@ onBeforeUnmount(() => {
         </label>
         <label class="setting-row">
           <div>
-            <div class="font-medium">Start engine when DevStack starts</div>
+            <div class="font-medium">Start engine when Dockiva starts</div>
             <div class="text-xs text-zinc-500">
-              Start or reconnect only the selected DevStack-managed backend. External Docker is never launched implicitly.
+              Start or reconnect only the selected Dockiva-managed backend. External Docker is never launched implicitly.
             </div>
           </div>
           <input
@@ -648,10 +648,10 @@ onBeforeUnmount(() => {
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div class="flex items-center gap-2">
-            <h3 class="font-semibold">DevStack Updates</h3>
+            <h3 class="font-semibold">Dockiva Updates</h3>
             <span v-if="versionInfo" class="version-badge">v{{ versionInfo.version }}</span>
           </div>
-          <p class="mt-1 text-sm text-zinc-500">Check official releases published by Tomnerb/DevStack.</p>
+          <p class="mt-1 text-sm text-zinc-500">Check official releases published by Tomnerb/Dockiva.</p>
         </div>
         <button class="toolbar-button" :disabled="updateBusy" @click="checkForUpdates">
           {{ updateBusy ? 'Checking…' : 'Check for Updates' }}

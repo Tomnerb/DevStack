@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	devstackVMMGuestPort       = 10250
-	devstackVMMDockerGuestPort = 10251
+	dockivaVMMGuestPort       = 10250
+	dockivaVMMDockerGuestPort = 10251
 )
 
 type darwinEngineBackend struct{}
@@ -49,7 +49,7 @@ func (backend darwinEngineBackend) Status(
 		Message:   "Native macOS Virtualization.framework backend.",
 	}
 
-	helper, err := devstackVMMPath()
+	helper, err := dockivaVMMPath()
 	if err != nil {
 		status.Message = err.Error()
 		return status
@@ -57,7 +57,7 @@ func (backend darwinEngineBackend) Status(
 
 	status.HelperInstalled = true
 
-	guestDir, err := devstackGuestDir()
+	guestDir, err := dockivaGuestDir()
 	if err != nil {
 		status.Message = err.Error()
 		return status
@@ -80,7 +80,7 @@ func (backend darwinEngineBackend) Status(
 		return status
 	}
 
-	stateDir, _ := devstackVMMStateDir()
+	stateDir, _ := dockivaVMMStateDir()
 	proxySocket := filepath.Join(stateDir, "docker.sock")
 
 	output, err := runCommand(
@@ -106,7 +106,7 @@ func (backend darwinEngineBackend) Start(
 	service *DockerService,
 	_ string,
 ) (EngineActionResult, error) {
-	helper, err := devstackVMMPath()
+	helper, err := dockivaVMMPath()
 	if err != nil {
 		return EngineActionResult{
 			Status: backend.Status(service, ""),
@@ -119,7 +119,7 @@ func (backend darwinEngineBackend) Start(
 		}, fmt.Errorf("stage bundled macOS guest assets: %w", err)
 	}
 
-	guestDir, err := devstackGuestDir()
+	guestDir, err := dockivaGuestDir()
 	if err != nil {
 		return EngineActionResult{
 			Status: backend.Status(service, ""),
@@ -131,14 +131,14 @@ func (backend darwinEngineBackend) Start(
 
 	if !fileExists(kernel) || !fileExists(disk) {
 		return EngineActionResult{
-			Status: backend.Status(service, ""),
-		}, fmt.Errorf(
-			"macOS guest assets are missing; copy vmlinux and rootfs.ext4 into %s (see scripts/build-macos-guest-assets-linux.sh)",
-			guestDir,
-		)
+				Status: backend.Status(service, ""),
+			}, fmt.Errorf(
+				"macOS guest assets are missing; copy vmlinux and rootfs.ext4 into %s (see scripts/build-macos-guest-assets-linux.sh)",
+				guestDir,
+			)
 	}
 
-	stateDir, err := devstackVMMStateDir()
+	stateDir, err := dockivaVMMStateDir()
 	if err != nil {
 		return EngineActionResult{
 			Status: backend.Status(service, ""),
@@ -168,7 +168,7 @@ func (backend darwinEngineBackend) Start(
 		}, err
 	}
 
-	logDir = filepath.Join(logDir, "Library", "Logs", "DevStack")
+	logDir = filepath.Join(logDir, "Library", "Logs", "Dockiva")
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return EngineActionResult{
 			Status: backend.Status(service, ""),
@@ -204,9 +204,9 @@ func (backend darwinEngineBackend) Start(
 		"--memory-mib",
 		strconv.Itoa(memoryMiB),
 		"--guest-port",
-		strconv.Itoa(devstackVMMGuestPort),
+		strconv.Itoa(dockivaVMMGuestPort),
 		"--docker-guest-port",
-		strconv.Itoa(devstackVMMDockerGuestPort),
+		strconv.Itoa(dockivaVMMDockerGuestPort),
 	)
 
 	cmd.Stdout = logFile
@@ -252,25 +252,25 @@ func (backend darwinEngineBackend) Start(
 	}
 
 	return EngineActionResult{
-		Status: backend.Status(service, ""),
-	}, fmt.Errorf(
-		"native VM started but containerd proxy did not become ready: %w",
-		lastErr,
-	)
+			Status: backend.Status(service, ""),
+		}, fmt.Errorf(
+			"native VM started but containerd proxy did not become ready: %w",
+			lastErr,
+		)
 }
 
 func (backend darwinEngineBackend) Stop(
 	service *DockerService,
 	_ string,
 ) (EngineActionResult, error) {
-	helper, err := devstackVMMPath()
+	helper, err := dockivaVMMPath()
 	if err != nil {
 		return EngineActionResult{
 			Status: backend.Status(service, ""),
 		}, err
 	}
 
-	stateDir, _ := devstackVMMStateDir()
+	stateDir, _ := dockivaVMMStateDir()
 
 	output, err := runCommand(
 		15*time.Second,
@@ -303,7 +303,7 @@ func (backend darwinEngineBackend) Delete(
 		}, errors.New("stop the native VM before deleting its guest disk")
 	}
 
-	guestDir, err := devstackGuestDir()
+	guestDir, err := dockivaGuestDir()
 	if err != nil {
 		return EngineActionResult{Status: status}, err
 	}
@@ -319,7 +319,7 @@ func (backend darwinEngineBackend) Delete(
 
 	return EngineActionResult{
 		Status: backend.Status(service, ""),
-		Output: "Removed DevStack macOS guest rootfs.ext4. Kernel asset was preserved.",
+		Output: "Removed Dockiva macOS guest rootfs.ext4. Kernel asset was preserved.",
 	}, nil
 }
 
@@ -328,14 +328,14 @@ func (backend darwinEngineBackend) Provision(
 	option string,
 ) (EngineActionResult, error) {
 	return EngineActionResult{
-		Status: backend.Status(service, option),
-	}, errors.New(
-		"macOS native guest assets are prepared outside the running app; use scripts/build-macos-guest-assets-linux.sh and scripts/install-macos-native-assets.sh",
-	)
+			Status: backend.Status(service, option),
+		}, errors.New(
+			"macOS native guest assets are prepared outside the running app; use scripts/build-macos-guest-assets-linux.sh and scripts/install-macos-native-assets.sh",
+		)
 }
 
-func devstackVMMPath() (string, error) {
-	if explicit := strings.TrimSpace(os.Getenv("DEVSTACK_VMM_PATH")); explicit != "" {
+func dockivaVMMPath() (string, error) {
+	if explicit := firstNonEmptyEnvironment("DOCKIVA_VMM_PATH", "DEVSTACK_VMM_PATH"); explicit != "" {
 		if fileExists(explicit) {
 			return explicit, nil
 		}
@@ -348,11 +348,11 @@ func devstackVMMPath() (string, error) {
 				filepath.Dir(executable),
 				"..",
 				"Resources",
-				"devstack-vmm",
+				"dockiva-vmm",
 			),
 			filepath.Join(
 				filepath.Dir(executable),
-				"devstack-vmm",
+				"dockiva-vmm",
 			),
 		}
 
@@ -367,21 +367,21 @@ func devstackVMMPath() (string, error) {
 	home, _ := os.UserHomeDir()
 
 	candidates := []string{
-		"/usr/local/libexec/devstack-vmm",
-		"/opt/homebrew/libexec/devstack-vmm",
+		"/usr/local/libexec/dockiva-vmm",
+		"/opt/homebrew/libexec/dockiva-vmm",
 		filepath.Join(
 			home,
 			".local",
 			"libexec",
-			"devstack-vmm",
+			"dockiva-vmm",
 		),
 		filepath.Join(
 			"native",
 			"macos",
-			"DevStackVMM",
+			"DockivaVMM",
 			".build",
 			"release",
-			"devstack-vmm",
+			"dockiva-vmm",
 		),
 	}
 
@@ -396,8 +396,8 @@ func devstackVMMPath() (string, error) {
 	)
 }
 
-func devstackGuestDir() (string, error) {
-	if explicit := strings.TrimSpace(os.Getenv("DEVSTACK_GUEST_DIR")); explicit != "" {
+func dockivaGuestDir() (string, error) {
+	if explicit := firstNonEmptyEnvironment("DOCKIVA_GUEST_DIR", "DEVSTACK_GUEST_DIR"); explicit != "" {
 		return filepath.Clean(explicit), nil
 	}
 
@@ -406,17 +406,31 @@ func devstackGuestDir() (string, error) {
 		return "", err
 	}
 
-	return filepath.Join(
+	dockivaDir := filepath.Join(
+		home,
+		"Library",
+		"Application Support",
+		"Dockiva",
+		"guest",
+	)
+	legacyDir := filepath.Join(
 		home,
 		"Library",
 		"Application Support",
 		"DevStack",
 		"guest",
-	), nil
+	)
+	if !fileExists(filepath.Join(dockivaDir, "rootfs.ext4")) &&
+		fileExists(filepath.Join(legacyDir, "rootfs.ext4")) &&
+		fileExists(filepath.Join(legacyDir, "vmlinux")) {
+		return legacyDir, nil
+	}
+
+	return dockivaDir, nil
 }
 
 func bundledGuestDir() string {
-	if explicit := strings.TrimSpace(os.Getenv("DEVSTACK_GUEST_ASSETS_PATH")); explicit != "" {
+	if explicit := firstNonEmptyEnvironment("DOCKIVA_GUEST_ASSETS_PATH", "DEVSTACK_GUEST_ASSETS_PATH"); explicit != "" {
 		return filepath.Clean(explicit)
 	}
 
@@ -438,7 +452,7 @@ func bundledGuestDir() string {
 // Contents/Resources would invalidate the bundle and may fail on read-only
 // installations.
 func stageBundledGuestAssets() error {
-	destination, err := devstackGuestDir()
+	destination, err := dockivaGuestDir()
 	if err != nil {
 		return err
 	}
@@ -481,7 +495,7 @@ func copyFileAtomically(source string, destination string) error {
 	}
 	defer input.Close()
 
-	temporary, err := os.CreateTemp(filepath.Dir(destination), ".devstack-asset-*")
+	temporary, err := os.CreateTemp(filepath.Dir(destination), ".dockiva-asset-*")
 	if err != nil {
 		return err
 	}
@@ -503,7 +517,7 @@ func copyFileAtomically(source string, destination string) error {
 	return os.Rename(temporaryPath, destination)
 }
 
-func devstackVMMStateDir() (string, error) {
+func dockivaVMMStateDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -513,13 +527,13 @@ func devstackVMMStateDir() (string, error) {
 		home,
 		"Library",
 		"Application Support",
-		"DevStack",
+		"Dockiva",
 		"run",
 	), nil
 }
 
 func defaultDarwinVMCPUCount() int {
-	value := strings.TrimSpace(os.Getenv("DEVSTACK_VM_CPUS"))
+	value := firstNonEmptyEnvironment("DOCKIVA_VM_CPUS", "DEVSTACK_VM_CPUS")
 	if value != "" {
 		if parsed, err := strconv.Atoi(value); err == nil && parsed >= 1 && parsed <= 16 {
 			return parsed
@@ -530,7 +544,7 @@ func defaultDarwinVMCPUCount() int {
 }
 
 func defaultDarwinVMMemoryMiB() int {
-	value := strings.TrimSpace(os.Getenv("DEVSTACK_VM_MEMORY_MIB"))
+	value := firstNonEmptyEnvironment("DOCKIVA_VM_MEMORY_MIB", "DEVSTACK_VM_MEMORY_MIB")
 	if value != "" {
 		if parsed, err := strconv.Atoi(value); err == nil && parsed >= 512 && parsed <= 32768 {
 			return parsed
@@ -543,4 +557,13 @@ func defaultDarwinVMMemoryMiB() int {
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+func firstNonEmptyEnvironment(names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	return ""
 }

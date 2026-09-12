@@ -1,7 +1,7 @@
 version: '3'
 
 vars:
-  APP_NAME: "devstack"
+  APP_NAME: "dockiva"
   BIN_DIR: "bin"
   APP_VERSION:
     sh: "tr -d '[:space:]' < VERSION"

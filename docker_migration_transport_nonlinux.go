@@ -12,7 +12,7 @@ func networkHelperImportDockerImages(
 	string,
 ) error {
 	return errors.New(
-		"Docker image migration into DevStack Native is currently available only on Linux",
+		"Docker image migration into Dockiva Native is currently available only on Linux",
 	)
 }
 
@@ -22,6 +22,6 @@ func networkHelperUploadDockerVolume(
 	string,
 ) error {
 	return errors.New(
-		"Docker volume migration into DevStack Native is currently available only on Linux",
+		"Docker volume migration into Dockiva Native is currently available only on Linux",
 	)
 }

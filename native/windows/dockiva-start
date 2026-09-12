@@ -3,7 +3,7 @@ set -eu
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-mkdir -p /run/containerd /var/lib/containerd /var/log/devstack /etc/containerd
+mkdir -p /run/containerd /var/lib/containerd /var/log/dockiva /etc/containerd
 mount -t cgroup2 none /sys/fs/cgroup 2>/dev/null || true
 
 cat >/etc/containerd/config.toml <<'EOF'
@@ -16,11 +16,11 @@ state = "/run/containerd"
 EOF
 
 pkill -f '/usr/local/bin/containerd' 2>/dev/null || true
-nohup /usr/local/bin/containerd --config /etc/containerd/config.toml >/var/log/devstack/containerd.log 2>&1 &
+nohup /usr/local/bin/containerd --config /etc/containerd/config.toml >/var/log/dockiva/containerd.log 2>&1 &
 
 for _ in $(seq 1 120); do
   [ -S /run/containerd/containerd.sock ] && break
   sleep 0.1
 done
 
-echo "DevStack dedicated WSL2 containerd engine ready."
+echo "Dockiva dedicated WSL2 containerd engine ready."

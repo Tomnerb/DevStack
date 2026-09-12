@@ -11,7 +11,7 @@ import * as $models from "./models.js";
 
 /**
  * ApplyUpdate downloads the platform-specific release, verifies its SHA-256
- * digest, stages it, and restarts DevStack through Wails' detached updater
+ * digest, stages it, and restarts Dockiva through Wails' detached updater
  * helper. The running application is only replaced after it has exited.
  */
 export function ApplyUpdate(): $CancellablePromise<void> {

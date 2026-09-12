@@ -1,4 +1,4 @@
-# DevStack — Milestone 16.1: Engine Auto-Recovery
+# Dockiva — Milestone 16.1: Engine Auto-Recovery
 
 Milestone 16.1 fixes offline/stale Docker endpoint handling.
 
@@ -9,7 +9,7 @@ stopped or removed:
 unix:///home/user/.docker/desktop/docker.sock
 ```
 
-DevStack no longer treats that context as the only possible endpoint.
+Dockiva no longer treats that context as the only possible endpoint.
 
 ## Endpoint discovery
 
@@ -35,7 +35,7 @@ A candidate is selected only after a real Docker API ping succeeds.
 
 ## Start Engine on Linux
 
-When the user explicitly clicks `Start Engine` DevStack does:
+When the user explicitly clicks `Start Engine` Dockiva does:
 
 ```text
 1. Reconnect/discover an already-running Docker Engine
@@ -48,7 +48,7 @@ When the user explicitly clicks `Start Engine` DevStack does:
 5. Discover/reconnect the Docker API again
 ```
 
-DevStack never runs `sudo` because a desktop app should not request a password
+Dockiva never runs `sudo` because a desktop app should not request a password
 through a hidden terminal.
 
 ## Automatic recovery
@@ -57,7 +57,7 @@ Two settings are available:
 
 ```text
 Auto reconnect engine
-Start engine when DevStack starts
+Start engine when Dockiva starts
 ```
 
 `Auto reconnect engine` defaults on.
@@ -66,7 +66,7 @@ Automatic Linux startup is deliberately non-privileged: it may start a
 rootless user Docker service, but it will not show a surprise administrator
 prompt.
 
-macOS/Windows may start the DevStack-owned VZ/WSL2 backend when configured.
+macOS/Windows may start the Dockiva-owned VZ/WSL2 backend when configured.
 
 External Docker Desktop is never launched automatically.
 
@@ -85,18 +85,18 @@ When the engine is offline:
 ## Apply
 
 ```bash
-chmod +x devstack-milestone16.1/apply.sh
+chmod +x dockiva-milestone16.1/apply.sh
 
-./devstack-milestone16.1/apply.sh \
-  /home/darith/mbanq/devstack/devstack
+./dockiva-milestone16.1/apply.sh \
+  /home/darith/mbanq/dockiva/dockiva
 ```
 
 Then:
 
 ```bash
-cd /home/darith/mbanq/devstack/devstack
+cd /home/darith/mbanq/dockiva/dockiva
 
 go mod tidy
 wails3 build -tags gtk3
-./bin/devstack
+./bin/dockiva
 ```

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "DevStack containerd runtime check"
+echo "Dockiva containerd runtime check"
 echo
 
 echo "User:"
@@ -51,4 +51,4 @@ else
 fi
 
 echo
-echo "DevStack direct runtime always uses namespace: devstack"
+echo "Dockiva direct runtime always uses namespace: dockiva"

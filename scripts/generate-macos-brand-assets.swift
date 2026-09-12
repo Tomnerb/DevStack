@@ -4,7 +4,7 @@ import AppKit
 import Foundation
 
 let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-let logoURL = root.appendingPathComponent("assets/devstack_icon2.png")
+let logoURL = root.appendingPathComponent("assets/dockiva_icon2.png")
 let outputURL = root.appendingPathComponent("build/darwin/dmg-background.png")
 
 guard let logo = NSImage(contentsOf: logoURL) else {
@@ -52,7 +52,7 @@ let titleStyle: [NSAttributedString.Key: Any] = [
     .foregroundColor: color(247, 249, 252),
     .kern: -0.5,
 ]
-("DevStack" as NSString).draw(at: NSPoint(x: 101, y: 315), withAttributes: titleStyle)
+("Dockiva" as NSString).draw(at: NSPoint(x: 101, y: 315), withAttributes: titleStyle)
 
 let eyebrowStyle: [NSAttributedString.Key: Any] = [
     .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
@@ -88,7 +88,7 @@ let instructionStyle: [NSAttributedString.Key: Any] = [
     .foregroundColor: color(247, 249, 252, 0.94),
     .paragraphStyle: instructionParagraph,
 ]
-("Drag DevStack to Applications" as NSString).draw(
+("Drag Dockiva to Applications" as NSString).draw(
     in: NSRect(x: 80, y: 95, width: 380, height: 28),
     withAttributes: instructionStyle
 )

@@ -1,4 +1,4 @@
-# DevStack — Milestone 16.1.3: Docker Desktop Start UX Fix
+# Dockiva — Milestone 16.1.3: Docker Desktop Start UX Fix
 
 This fixes two issues visible when Docker Desktop is installed but stopped.
 
@@ -37,7 +37,7 @@ Docker Desktop is now launched with:
 systemctl --user start --no-block docker-desktop
 ```
 
-The command returns immediately, then DevStack polls only the configured Docker
+The command returns immediately, then Dockiva polls only the configured Docker
 Desktop socket for up to ~20 seconds.
 
 It does not fall back to `/var/run/docker.sock`.
@@ -45,20 +45,20 @@ It does not fall back to `/var/run/docker.sock`.
 ## Apply
 
 ```bash
-chmod +x devstack-milestone16.1.3/apply.sh
+chmod +x dockiva-milestone16.1.3/apply.sh
 
-./devstack-milestone16.1.3/apply.sh \
-  /home/darith/mbanq/devstack/devstack
+./dockiva-milestone16.1.3/apply.sh \
+  /home/darith/mbanq/dockiva/dockiva
 ```
 
 Then:
 
 ```bash
-cd /home/darith/mbanq/devstack/devstack
+cd /home/darith/mbanq/dockiva/dockiva
 go mod tidy
 wails3 build -tags gtk3
-./bin/devstack
+./bin/dockiva
 ```
 
-If Docker Desktop still does not become ready, DevStack returns an error instead
+If Docker Desktop still does not become ready, Dockiva returns an error instead
 of staying in an indefinite-looking `Starting…` state.

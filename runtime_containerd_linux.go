@@ -25,15 +25,15 @@ import (
 )
 
 const (
-	devstackContainerdNamespace = "devstack"
-	devstackStateRoot           = "/var/lib/devstack"
+	dockivaContainerdNamespace = "dockiva"
+	dockivaStateRoot           = "/var/lib/dockiva"
 
-	labelManaged      = "devstack.io/managed"
-	labelImage        = "devstack.io/image"
-	labelSnapshotter  = "devstack.io/snapshotter"
-	labelNetworkMode  = "devstack.io/network-mode"
-	labelNetNSPath    = "devstack.io/netns-path"
-	labelPortMappings = "devstack.io/port-mappings"
+	labelManaged      = "dockiva.io/managed"
+	labelImage        = "dockiva.io/image"
+	labelSnapshotter  = "dockiva.io/snapshotter"
+	labelNetworkMode  = "dockiva.io/network-mode"
+	labelNetNSPath    = "dockiva.io/netns-path"
+	labelPortMappings = "dockiva.io/port-mappings"
 
 	networkModeCNI = "cni"
 )
@@ -58,7 +58,7 @@ func newContainerdRuntime(socket string) (*containerdRuntime, error) {
 
 	cli, err := containerd.New(
 		socket,
-		containerd.WithDefaultNamespace(devstackContainerdNamespace),
+		containerd.WithDefaultNamespace(dockivaContainerdNamespace),
 		containerd.WithTimeout(5*time.Second),
 	)
 	if err != nil {
@@ -67,7 +67,7 @@ func newContainerdRuntime(socket string) (*containerdRuntime, error) {
 
 	r := &containerdRuntime{
 		socket:    socket,
-		namespace: devstackContainerdNamespace,
+		namespace: dockivaContainerdNamespace,
 		rootless:  isRootlessContainerdSocket(socket),
 		client:    cli,
 	}
@@ -148,7 +148,7 @@ func selectContainerdSnapshotter(
 	ctx context.Context,
 	cli *containerd.Client,
 ) (string, error) {
-	preferred := strings.TrimSpace(os.Getenv("DEVSTACK_CONTAINERD_SNAPSHOTTER"))
+	preferred := strings.TrimSpace(os.Getenv("DOCKIVA_CONTAINERD_SNAPSHOTTER"))
 
 	candidates := []string{}
 	if preferred != "" {
@@ -170,7 +170,7 @@ func selectContainerdSnapshotter(
 	}
 
 	return "", errors.New(
-		"no supported containerd snapshotter found; tried DEVSTACK_CONTAINERD_SNAPSHOTTER, overlayfs, and native",
+		"no supported containerd snapshotter found; tried DOCKIVA_CONTAINERD_SNAPSHOTTER, overlayfs, and native",
 	)
 }
 
@@ -232,7 +232,7 @@ func (r *containerdRuntime) Info(ctx context.Context) ContainerRuntimeInfo {
 	return info
 }
 
-// ListRuntimeImages exposes the images in DevStack's dedicated containerd
+// ListRuntimeImages exposes the images in Dockiva's dedicated containerd
 // namespace. They are not Docker images and must never be read from a Docker
 // endpoint when Native is selected.
 func (r *containerdRuntime) ListRuntimeImages(ctx context.Context) ([]ImageInfo, error) {
@@ -273,9 +273,9 @@ func (r *containerdRuntime) ListRuntimeNetworks(ctx context.Context) ([]NetworkI
 		return nil, errors.New(message)
 	}
 	return []NetworkInfo{{
-		ID:         "devstack-net",
-		ShortID:    "devstack-net",
-		Name:       "devstack-net",
+		ID:         "dockiva-net",
+		ShortID:    "dockiva-net",
+		Name:       "dockiva-net",
 		Driver:     "cni-bridge",
 		Scope:      "local",
 		Attachable: true,
@@ -288,7 +288,7 @@ func (r *containerdRuntime) ListRuntimeVolumes(_ context.Context) ([]VolumeInfo,
 		// The Native runtime's volume store is deliberately root-owned. Never
 		// fall back to reading it from the desktop process: that produces a
 		// misleading permission error and bypasses the helper's authorization.
-		return nil, fmt.Errorf("list DevStack volumes through the privileged helper: %w", err)
+		return nil, fmt.Errorf("list Dockiva volumes through the privileged helper: %w", err)
 	}
 	return items, nil
 }
@@ -303,7 +303,7 @@ func (r *containerdRuntime) RemoveRuntimeVolume(_ context.Context, name string) 
 	}
 
 	if err := networkHelperRemoveRuntimeVolume(context.Background(), name); err != nil {
-		return fmt.Errorf("remove DevStack volume through the privileged helper: %w", err)
+		return fmt.Errorf("remove Dockiva volume through the privileged helper: %w", err)
 	}
 	return nil
 }
@@ -566,7 +566,7 @@ func (r *containerdRuntime) CreateRuntimeContainer(
 	if err != nil {
 		if errdefs.IsNotFound(err) {
 			return ContainerInfo{}, fmt.Errorf(
-				"image %q is not present in the devstack namespace; pull it first",
+				"image %q is not present in the dockiva namespace; pull it first",
 				reference,
 			)
 		}
@@ -595,7 +595,7 @@ func (r *containerdRuntime) CreateRuntimeContainer(
 			// Do not fall through to the desktop process. It cannot enter
 			// containerd's root-owned overlay snapshot and would mask a helper
 			// setup error as ".../snapshots/.../fs: permission denied".
-			return ContainerInfo{}, fmt.Errorf("create container through the privileged DevStack helper: %w", err)
+			return ContainerInfo{}, fmt.Errorf("create container through the privileged Dockiva helper: %w", err)
 		}
 		if request.AutoStart {
 			items, listErr := r.ListContainers(ctx)
@@ -696,7 +696,7 @@ func (r *containerdRuntime) CreateRuntimeContainer(
 		_ = done(leaseCtx)
 	}()
 
-	snapshotKey := "devstack-" + name
+	snapshotKey := "dockiva-" + name
 
 	container, err := cli.NewContainer(
 		leaseCtx,
@@ -1058,7 +1058,7 @@ func normalizeContainerdImageReference(reference string) string {
 func platformRuntimeCandidates() []RuntimeCandidateInfo {
 	socket, reachable, socketMessage := detectContainerdSocket()
 
-	message := socketMessage + " · namespace " + devstackContainerdNamespace
+	message := socketMessage + " · namespace " + dockivaContainerdNamespace
 
 	if reachable {
 		ctx, cancel := context.WithTimeout(

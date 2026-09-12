@@ -5,10 +5,10 @@
 	"info": {
 		"0000": {
 			"ProductVersion": "0.1.0",
-			"CompanyName": "DevStack",
-			"FileDescription": "DevStack Desktop",
-			"LegalCopyright": "© 2026 DevStack",
-			"ProductName": "DevStack",
+			"CompanyName": "Dockiva",
+			"FileDescription": "Dockiva Desktop",
+			"LegalCopyright": "© 2026 Dockiva",
+			"ProductName": "Dockiva",
 			"Comments": "Cross-platform container workspace"
 		}
 	}

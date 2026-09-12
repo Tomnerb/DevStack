@@ -1,8 +1,12 @@
-# DevStack
+<p align="center">
+  <img src="assets/dockiva_logo.png" alt="Dockiva" width="420">
+</p>
 
-DevStack is a lightweight, cross-platform desktop environment for managing local containers. It combines a Go and Wails core with a Vue interface and supports both platform-native runtimes and existing Docker endpoints.
+# Dockiva
 
-DevStack is open source under the [Apache License 2.0](LICENSE). Contributions
+Dockiva is a lightweight, cross-platform desktop environment for managing local containers. It combines a Go and Wails core with a Vue interface and supports both platform-native runtimes and existing Docker endpoints.
+
+Dockiva is open source under the [Apache License 2.0](LICENSE). Contributions
 are welcome; read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull
 request. Report suspected vulnerabilities privately according to
 [SECURITY.md](SECURITY.md).
@@ -11,7 +15,7 @@ Every pull request runs the frontend build and Go test suite. Dependabot checks
 Go, npm, and GitHub Actions dependencies weekly.
 
 > [!IMPORTANT]
-> DevStack is under active development. Native macOS and Windows engines still require target-platform validation before production use.
+> Dockiva is under active development. Native macOS and Windows engines still require target-platform validation before production use.
 
 ## Highlights
 
@@ -25,24 +29,24 @@ Go, npm, and GitHub Actions dependencies weekly.
 - Explicit runtime selection with stable endpoint identity
 - Optional external Docker support without silently switching engines
 
-## DevStack compared with OrbStack and Docker Desktop
+## Dockiva compared with OrbStack and Docker Desktop
 
-DevStack is not trying to copy every feature in either product. Its current
+Dockiva is not trying to copy every feature in either product. Its current
 advantage is a focused, inspectable container control plane that can use a
-DevStack-managed runtime or an existing Docker/Moby endpoint without silently
+Dockiva-managed runtime or an existing Docker/Moby endpoint without silently
 changing which engine owns your data.
 
-| Capability | DevStack | OrbStack | Docker Desktop |
+| Capability | Dockiva | OrbStack | Docker Desktop |
 | --- | --- | --- | --- |
 | Host platforms | macOS, Linux, and Windows; native-backend maturity varies | Focused on macOS | macOS, Linux, and Windows |
-| Runtime choice | Explicit DevStack Native or saved external endpoint | Integrated Docker-compatible engine and Linux machines | Bundled Docker Engine with platform VM/WSL integration |
+| Runtime choice | Explicit Dockiva Native or saved external endpoint | Integrated Docker-compatible engine and Linux machines | Bundled Docker Engine with platform VM/WSL integration |
 | Container UI | Lifecycle, Compose projects, logs, terminal, inspect, stats, images, volumes, and networks | Containers, Compose, Kubernetes, Linux machines, and host file access | Containers, images, volumes, builds, logs, Kubernetes, Docker Hub, and Extensions |
 | Storage workflow | Reviews container storage folders and offers scoped build-cache, unused-resource, and deep-clean choices | Dynamic disk plus container/image/volume file access and Docker Desktop migration | Image/volume cleanup, disk-image controls, and Resource Saver |
 | Engine identity | Keeps native and external stores separate and shows the active endpoint | Supports Docker contexts and side-by-side migration | Uses Docker Desktop's managed engine/context |
 | Kubernetes | Not implemented | Included | Included |
 | Product maturity | Active development; native engines still being validated | Established macOS product | Established cross-platform product and ecosystem |
 
-Choose DevStack when explicit engine ownership, a compact container-focused UI,
+Choose Dockiva when explicit engine ownership, a compact container-focused UI,
 and a cross-platform native-runtime direction matter more than an all-in-one
 Kubernetes, registry, AI, extensions, or general Linux-machine suite. Choose
 OrbStack when you want its highly optimized macOS container and Linux-machine
@@ -57,7 +61,7 @@ Comparison references: [OrbStack overview](https://docs.orbstack.dev/),
 ## Runtime architecture
 
 ```text
-                       DevStack UI and Go core
+                       Dockiva UI and Go core
                                   │
                           ContainerRuntime
                                   │
@@ -67,22 +71,22 @@ Comparison references: [OrbStack overview](https://docs.orbstack.dev/),
               │                   │                   │
         containerd/runc     Virtualization.framework  WSL2
                                   │                   │
-                           Linux guest          DevStack guest
+                           Linux guest          Dockiva guest
                                   │                   │
                       dockerd/containerd/runc   dockerd/containerd/runc
 ```
 
 External Docker and Moby endpoints remain available on supported platforms.
-DevStack Native exposes its own Docker-compatible API endpoint; it is a
+Dockiva Native exposes its own Docker-compatible API endpoint; it is a
 separate engine and never overwrites the selected External Docker endpoint.
 
 ## Platform status
 
 | Platform | Backend | Status |
 | --- | --- | --- |
-| Linux | Direct containerd in the `devstack` namespace | Implemented; CNI networking requires one-time helper installation |
+| Linux | Direct containerd in the `dockiva` namespace | Implemented; CNI networking requires one-time helper installation |
 | macOS | Apple `Virtualization.framework` VM | Implemented; requires Linux-generated kernel and root filesystem assets |
-| Windows | Dedicated DevStack WSL2 guest | Experimental; native runtime parity remains in progress |
+| Windows | Dedicated Dockiva WSL2 guest | Experimental; native runtime parity remains in progress |
 | All | External Docker/Moby endpoint | Supported |
 
 Docker Compose orchestration currently requires the Docker runtime. The macOS
@@ -91,18 +95,18 @@ local socket); target-macOS validation is still required before release.
 
 ## Docker contexts and migration
 
-DevStack Native and an existing Docker Desktop/System Docker installation are
+Dockiva Native and an existing Docker Desktop/System Docker installation are
 separate container stores. Use separate Docker contexts rather than trying to
 merge live engines:
 
 ```text
-docker context: devstack       -> DevStack Native
+docker context: dockiva       -> Dockiva Native
 docker context: desktop-linux  -> Docker Desktop
 ```
 
-The planned **Migrate Docker Data to DevStack** flow is explicitly opt-in. It
+The planned **Migrate Docker Data to Dockiva** flow is explicitly opt-in. It
 will inventory images, containers, volumes, and Compose projects; show disk and
-compatibility checks; copy supported data to DevStack Native; and verify the
+compatibility checks; copy supported data to Dockiva Native; and verify the
 result. It will never delete, alter, or silently switch the source Docker
 engine. Persistent-data migration requires macOS/Windows target validation and
 is not claimed as complete by this Linux build.
@@ -139,7 +143,7 @@ The reliable Linux GTK3 path is:
 
 ```bash
 wails3 build -tags gtk3
-./bin/devstack
+./bin/dockiva
 ```
 
 Frontend-only development:
@@ -165,16 +169,16 @@ UTC build date. The macOS build also writes the version into the app bundle;
 `CFBundleVersion` defaults to the Git commit count and may be overridden in CI:
 
 ```bash
-DEVSTACK_BUILD_NUMBER=42 ./scripts/build-macos.sh arm64 \
+DOCKIVA_BUILD_NUMBER=42 ./scripts/build-macos.sh arm64 \
   --guest-assets ./macos-guest
 ```
 
 The Engine Settings page shows the installed version and includes **Check for
-Updates**. DevStack reads the latest public release from
-`Tomnerb/DevStack` and compares its `vX.Y.Z` tag with the installed version. If
+Updates**. Dockiva reads the latest public release from
+`Tomnerb/Dockiva` and compares its `vX.Y.Z` tag with the installed version. If
 an update exists, **Update & Restart** downloads the matching archive inside
 the app, verifies it against the release's `SHA256SUMS`, stages the replacement,
-quits DevStack, atomically replaces the installed app, and launches the new
+quits Dockiva, atomically replaces the installed app, and launches the new
 version. The original installer remains available as a manual fallback.
 
 For a release, update `VERSION`, commit it, build the release installers, then
@@ -182,16 +186,16 @@ publish a GitHub release with the matching tag, such as `v0.2.0`. A macOS
 release build produces all three files needed for distribution:
 
 ```text
-dist/macos-ARCH/DevStack-VERSION-macOS-ARCH.dmg
-dist/macos-ARCH/DevStack-VERSION-darwin-ARCH.zip
+dist/macos-ARCH/Dockiva-VERSION-macOS-ARCH.dmg
+dist/macos-ARCH/Dockiva-VERSION-darwin-ARCH.zip
 dist/macos-ARCH/SHA256SUMS
 ```
 
 Upload the `.dmg`, updater `.zip`, and `SHA256SUMS` to the same GitHub Release.
 The `darwin` and architecture tokens in the updater archive name are required
-so DevStack selects the correct asset. Never publish an updater archive without
+so Dockiva selects the correct asset. Never publish an updater archive without
 its matching checksum file. When Apple credentials are configured, the archive
-contains the signed, notarized, and stapled `DevStack.app`. An unsigned release
+contains the signed, notarized, and stapled `Dockiva.app`. An unsigned release
 instead contains an ad-hoc-signed app and may be blocked by Gatekeeper until the
 user explicitly allows it. Updating `VERSION` always requires rebuilding the
 release artifacts.
@@ -204,7 +208,7 @@ frontend and Go tests, builds the macOS native guest, produces signed-or-unsigne
 macOS and Windows releases, and the Linux updater archive,
 creates one combined `SHA256SUMS`, and publishes the GitHub Release. It can also be rerun manually
 from **Actions → Release → Run workflow** with an existing tag.
-The current automated targets are macOS arm64 (DevStack Native), macOS amd64
+The current automated targets are macOS arm64 (Dockiva Native), macOS amd64
 (external Docker engine), Windows amd64, and Linux amd64/arm64.
 
 Configure these optional GitHub Actions environment secrets to sign releases:
@@ -254,7 +258,7 @@ secrets later to enable Authenticode signing without changing the release flow.
 The release is published only after every platform job succeeds. Windows uses
 a per-user installer under `%LOCALAPPDATA%` so the in-app updater can replace
 the packaged executable without an administrator prompt. Linux self-update works
-when the extracted `devstack` binary is installed in a user-writable location,
+when the extracted `dockiva` binary is installed in a user-writable location,
 such as `~/.local/bin`; system package upgrades should continue through the
 system package manager.
 
@@ -285,13 +289,13 @@ Copy the resulting `macos-guest` directory to the Mac, then build and optionally
 Output:
 
 ```text
-dist/macos-arm64/DevStack.app
+dist/macos-arm64/Dockiva.app
 ```
 
 The bundled native engine currently supports Apple silicon only. Intel Mac
 builds use an external Docker-compatible engine, such as Docker Desktop. The
 `--install` option copies the completed application to
-`~/Applications/DevStack.app`; without it, the application remains in `dist/`
+`~/Applications/Dockiva.app`; without it, the application remains in `dist/`
 and can be copied to `Applications` manually.
 
 #### Create a macOS DMG installer
@@ -314,20 +318,20 @@ wails3 task darwin:create:dmg
 Output:
 
 ```text
-bin/devstack.dmg
+bin/dockiva.dmg
 ```
 
 Use `darwin:create:dmg` after `build-macos.sh`. The higher-level
 `darwin:package:dmg` task rebuilds the application and can replace the native app
 bundle before the VMM helper and guest assets are injected. A native DMG contains
-`devstack-vmm`, `vmlinux`, and `rootfs.ext4`; an external-only DMG is smaller but
+`dockiva-vmm`, `vmlinux`, and `rootfs.ext4`; an external-only DMG is smaller but
 requires an existing Docker or Moby endpoint.
 
 Verify and open the image on macOS with:
 
 ```bash
-hdiutil verify bin/devstack.dmg
-open bin/devstack.dmg
+hdiutil verify bin/dockiva.dmg
+open bin/dockiva.dmg
 ```
 
 Development and unsigned-release bundles are ad-hoc signed. Public distribution
@@ -350,7 +354,7 @@ login keychain. Store notarization credentials once; use an app-specific passwor
 instead of the Apple Account password:
 
 ```bash
-xcrun notarytool store-credentials "devstack-notary" \
+xcrun notarytool store-credentials "dockiva-notary" \
   --apple-id "YOUR_APPLE_ID" \
   --team-id "YOUR_TEAM_ID" \
   --password "YOUR_APP_SPECIFIC_PASSWORD"
@@ -364,14 +368,14 @@ Then run the release build with the exact identity shown by
   --guest-assets ./macos-guest \
   --release \
   --sign-identity "Developer ID Application: YOUR NAME (TEAM_ID)" \
-  --notary-profile "devstack-notary"
+  --notary-profile "dockiva-notary"
 ```
 
 The script signs the nested VMM helper with its Virtualization entitlement,
 signs the application with hardened runtime and a secure timestamp, notarizes
 and staples the application, then creates, signs, notarizes, and staples
-`bin/devstack.dmg`. Credentials remain in Keychain and are never written to the
-repository. `DEVSTACK_SIGN_IDENTITY` and `DEVSTACK_NOTARY_PROFILE` may be used
+`bin/dockiva.dmg`. Credentials remain in Keychain and are never written to the
+repository. `DOCKIVA_SIGN_IDENTITY` and `DOCKIVA_NOTARY_PROFILE` may be used
 instead of their corresponding command-line options.
 
 ### Linux
@@ -384,8 +388,8 @@ instead of their corresponding command-line options.
 Output:
 
 ```text
-dist/linux-amd64/devstack
-dist/linux-arm64/devstack
+dist/linux-amd64/dockiva
+dist/linux-arm64/dockiva
 ```
 
 Install direct-containerd networking once when using the native Linux runtime:
@@ -411,7 +415,7 @@ wails3 build GOOS=windows GOARCH=amd64
 ```
 
 The generated installer is written under `bin/`; its name follows the Wails
-application configuration, normally `devstack-amd64-installer.exe`. This
+application configuration, normally `dockiva-amd64-installer.exe`. This
 installer installs the desktop application, WebView2 runtime when needed, Start
 Menu and desktop shortcuts, and an uninstaller. It does not currently provision
 the native WSL2 guest automatically.
@@ -422,30 +426,30 @@ The dedicated WSL2 guest root filesystem must currently be generated on Linux:
 ./scripts/build-windows-wsl-rootfs-linux.sh
 ```
 
-Copy `dist/windows-wsl/devstack-wsl-rootfs.tar` to the Windows computer and
-provision the dedicated `DevStack` WSL2 distribution from PowerShell:
+Copy `dist/windows-wsl/dockiva-wsl-rootfs.tar` to the Windows computer and
+provision the dedicated `Dockiva` WSL2 distribution from PowerShell:
 
 ```powershell
 .\scripts\check-wsl-windows.ps1
-.\scripts\install-devstack-wsl.ps1 `
-  -Rootfs C:\path\to\devstack-wsl-rootfs.tar
+.\scripts\install-dockiva-wsl.ps1 `
+  -Rootfs C:\path\to\dockiva-wsl-rootfs.tar
 ```
 
 Run these scripts only after WSL2 is enabled. The setup imports an isolated
-distribution named `DevStack` under `%LOCALAPPDATA%\DevStack\wsl`; it does not
+distribution named `Dockiva` under `%LOCALAPPDATA%\Dockiva\wsl`; it does not
 modify an existing Ubuntu or other user-managed WSL distribution.
 
 #### Planned Windows installer variants
 
 The intended release packaging has two explicit choices:
 
-- `DevStack-External-Setup.exe` installs the desktop application for use with an
+- `Dockiva-External-Setup.exe` installs the desktop application for use with an
   existing Docker or Moby endpoint and does not require WSL2.
-- `DevStack-Native-Setup.exe` bundles the DevStack root filesystem and offers to
+- `Dockiva-Native-Setup.exe` bundles the Dockiva root filesystem and offers to
   provision the dedicated WSL2 runtime with the user's consent.
 
 The native installer should detect WSL2, explain any required Windows feature or
-restart, preserve the DevStack distribution and container data during normal app
+restart, preserve the Dockiva distribution and container data during normal app
 upgrades, and never unregister the distribution during uninstall without a
 separate explicit confirmation. When a supported signing service is available,
 public releases should Authenticode-sign both the application executable and

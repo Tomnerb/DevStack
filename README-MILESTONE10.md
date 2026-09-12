@@ -1,4 +1,4 @@
-# DevStack — Milestone 10
+# Dockiva — Milestone 10
 
 Milestone 10 introduces the runtime abstraction required for the lightweight
 architecture.
@@ -24,19 +24,19 @@ while direct containerd behavior is incomplete.
 ## Apply
 
 ```bash
-chmod +x devstack-milestone10/apply.sh
+chmod +x dockiva-milestone10/apply.sh
 
-./devstack-milestone10/apply.sh \
-  /home/darith/mbanq/devstack/devstack
+./dockiva-milestone10/apply.sh \
+  /home/darith/mbanq/dockiva/dockiva
 ```
 
 Then:
 
 ```bash
-cd /home/darith/mbanq/devstack/devstack
+cd /home/darith/mbanq/dockiva/dockiva
 go mod tidy
 wails3 build -tags gtk3
-./bin/devstack
+./bin/dockiva
 ```
 
 Verify:
@@ -48,4 +48,4 @@ Verify:
 ## Next milestone
 
 Milestone 11 will implement the first real direct-containerd lifecycle on Linux
-inside a dedicated `devstack` namespace.
+inside a dedicated `dockiva` namespace.

@@ -1,4 +1,4 @@
-# DevStack — Milestone 12: CNI networking + localhost ports
+# Dockiva — Milestone 12: CNI networking + localhost ports
 
 Milestone 12 makes direct containerd practical for local web/API development.
 
@@ -18,8 +18,8 @@ Milestone 12 makes direct containerd practical for local web/API development.
 ## Network
 
 ```text
-name:    devstack-net
-bridge:  devstack0
+name:    dockiva-net
+bridge:  dockiva0
 subnet:  10.89.0.0/16
 gateway: 10.89.0.1
 ```
@@ -30,33 +30,33 @@ The CNI chain uses loopback + bridge/host-local + portmap.
 
 The Wails app remains unprivileged.
 
-A small root helper (`devstack-netd`) owns the Linux operations that require
+A small root helper (`dockiva-netd`) owns the Linux operations that require
 network privileges and exposes only a narrow Unix-socket API at:
 
 ```text
-/run/devstack/netd.sock
+/run/dockiva/netd.sock
 ```
 
-It accepts DevStack container IDs and localhost TCP mappings only.
+It accepts Dockiva container IDs and localhost TCP mappings only.
 
 ## Apply
 
 ```bash
-chmod +x devstack-milestone12/apply.sh
+chmod +x dockiva-milestone12/apply.sh
 
-./devstack-milestone12/apply.sh \
-  /home/darith/mbanq/devstack/devstack
+./dockiva-milestone12/apply.sh \
+  /home/darith/mbanq/dockiva/dockiva
 ```
 
 ## One-time networking install
 
 ```bash
-cd /home/darith/mbanq/devstack/devstack
+cd /home/darith/mbanq/dockiva/dockiva
 ./scripts/install-containerd-networking.sh
 ```
 
 The installer may use sudo to install CNI plugins/iproute2, create the
-`devstack` group, install the helper, write the fixed CNI config, and start the
+`dockiva` group, install the helper, write the fixed CNI config, and start the
 systemd service.
 
 Then:
@@ -65,14 +65,14 @@ Then:
 ./scripts/check-containerd-networking.sh
 ```
 
-Log out/in after first install for permanent `devstack` group membership.
+Log out/in after first install for permanent `dockiva` group membership.
 
 ## Build
 
 ```bash
 go mod tidy
 wails3 build -tags gtk3
-./bin/devstack
+./bin/dockiva
 ```
 
 ## Test

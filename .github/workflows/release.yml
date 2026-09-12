@@ -170,8 +170,8 @@ jobs:
           fi
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
-          certificate_path="$RUNNER_TEMP/devstack-signing.p12"
-          keychain_path="$RUNNER_TEMP/devstack-signing.keychain-db"
+          certificate_path="$RUNNER_TEMP/dockiva-signing.p12"
+          keychain_path="$RUNNER_TEMP/dockiva-signing.keychain-db"
           keychain_password="$(openssl rand -hex 24)"
 
           printf '%s' "$MACOS_CERTIFICATE" | base64 -D > "$certificate_path"
@@ -183,7 +183,7 @@ jobs:
           security list-keychains -d user -s "$keychain_path" login.keychain-db
           security default-keychain -d user -s "$keychain_path"
 
-          xcrun notarytool store-credentials devstack-ci \
+          xcrun notarytool store-credentials dockiva-ci \
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_PASSWORD"
@@ -204,7 +204,7 @@ jobs:
             ./scripts/build-macos.sh "${build_args[@]}" \
               --release \
               --sign-identity "$MACOS_SIGN_IDENTITY" \
-              --notary-profile devstack-ci
+              --notary-profile dockiva-ci
           else
             ./scripts/build-macos.sh "${build_args[@]}" \
               --unsigned-release
@@ -215,16 +215,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          codesign --verify --deep --strict --verbose=2 "dist/macos-${{ matrix.arch }}/DevStack.app"
-          xcrun stapler validate "dist/macos-${{ matrix.arch }}/DevStack.app"
-          xcrun stapler validate "dist/macos-${{ matrix.arch }}/DevStack-$(cat VERSION)-macOS-${{ matrix.arch }}.dmg"
+          codesign --verify --deep --strict --verbose=2 "dist/macos-${{ matrix.arch }}/Dockiva.app"
+          xcrun stapler validate "dist/macos-${{ matrix.arch }}/Dockiva.app"
+          xcrun stapler validate "dist/macos-${{ matrix.arch }}/Dockiva-$(cat VERSION)-macOS-${{ matrix.arch }}.dmg"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-macos-${{ matrix.arch }}
           path: |
-            dist/macos-${{ matrix.arch }}/DevStack-*-macOS-${{ matrix.arch }}.dmg
-            dist/macos-${{ matrix.arch }}/DevStack-*-darwin-${{ matrix.arch }}.zip
+            dist/macos-${{ matrix.arch }}/Dockiva-*-macOS-${{ matrix.arch }}.dmg
+            dist/macos-${{ matrix.arch }}/Dockiva-*-darwin-${{ matrix.arch }}.zip
           if-no-files-found: error
 
       - name: Remove temporary signing keychain
@@ -232,8 +232,8 @@ jobs:
         shell: bash
         run: |
           security default-keychain -d user -s login.keychain-db || true
-          security delete-keychain "$RUNNER_TEMP/devstack-signing.keychain-db" || true
-          rm -f "$RUNNER_TEMP/devstack-signing.p12"
+          security delete-keychain "$RUNNER_TEMP/dockiva-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/dockiva-signing.p12"
 
   windows:
     name: Windows amd64 release
@@ -284,7 +284,7 @@ jobs:
             exit 0
           }
           [IO.File]::WriteAllBytes(
-            "$env:RUNNER_TEMP\devstack-signing.pfx",
+            "$env:RUNNER_TEMP\dockiva-signing.pfx",
             [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
           )
           "enabled=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
@@ -306,7 +306,7 @@ jobs:
               Sort-Object FullName -Descending |
               Select-Object -First 1
             if (-not $signTool) { throw "signtool.exe was not found." }
-            & $signTool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f "$env:RUNNER_TEMP\devstack-signing.pfx" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" bin\devstack.exe
+            & $signTool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f "$env:RUNNER_TEMP\dockiva-signing.pfx" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" bin\dockiva.exe
           }
 
       - name: Create per-user installer
@@ -318,7 +318,7 @@ jobs:
           $version = (Get-Content VERSION -Raw).Trim()
           wails3 generate webview2bootstrapper -dir build/windows/nsis
           Push-Location build/windows/nsis
-          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" "/DWAILS_INSTALL_SCOPE=user" "/DREQUEST_EXECUTION_LEVEL=user" "/DINFO_PROJECTNAME=DevStack" "/DINFO_COMPANYNAME=DevStack" "/DINFO_PRODUCTNAME=DevStack" "/DINFO_PRODUCTVERSION=$version" "/DARG_WAILS_AMD64_BINARY=$pwd\..\..\..\bin\devstack.exe" project.nsi
+          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" "/DWAILS_INSTALL_SCOPE=user" "/DREQUEST_EXECUTION_LEVEL=user" "/DINFO_PROJECTNAME=Dockiva" "/DINFO_COMPANYNAME=Dockiva" "/DINFO_PRODUCTNAME=Dockiva" "/DINFO_PRODUCTVERSION=$version" "/DARG_WAILS_AMD64_BINARY=$pwd\..\..\..\bin\dockiva.exe" project.nsi
           Pop-Location
 
           if ("${{ steps.windows_signing.outputs.enabled }}" -eq "true") {
@@ -326,19 +326,19 @@ jobs:
               Sort-Object FullName -Descending |
               Select-Object -First 1
             if (-not $signTool) { throw "signtool.exe was not found." }
-            & $signTool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f "$env:RUNNER_TEMP\devstack-signing.pfx" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" bin\DevStack-amd64-installer.exe
+            & $signTool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f "$env:RUNNER_TEMP\dockiva-signing.pfx" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" bin\Dockiva-amd64-installer.exe
           }
 
           New-Item -ItemType Directory -Force dist/release | Out-Null
-          Compress-Archive -Path bin/devstack.exe -DestinationPath "dist/release/DevStack-$version-windows-amd64.zip" -Force
-          Copy-Item bin/DevStack-amd64-installer.exe "dist/release/DevStack-$version-windows-amd64-installer.exe"
+          Compress-Archive -Path bin/dockiva.exe -DestinationPath "dist/release/Dockiva-$version-windows-amd64.zip" -Force
+          Copy-Item bin/Dockiva-amd64-installer.exe "dist/release/Dockiva-$version-windows-amd64-installer.exe"
 
       - name: Verify Authenticode signatures
         if: steps.windows_signing.outputs.enabled == 'true'
         shell: pwsh
         run: |
-          $binary = Get-AuthenticodeSignature bin/devstack.exe
-          $installer = Get-AuthenticodeSignature bin/DevStack-amd64-installer.exe
+          $binary = Get-AuthenticodeSignature bin/dockiva.exe
+          $installer = Get-AuthenticodeSignature bin/Dockiva-amd64-installer.exe
           if ($binary.Status -ne "Valid") { throw "Application signature is $($binary.Status)." }
           if ($installer.Status -ne "Valid") { throw "Installer signature is $($installer.Status)." }
 
@@ -351,7 +351,7 @@ jobs:
       - name: Remove temporary signing certificate
         if: always()
         shell: pwsh
-        run: Remove-Item "$env:RUNNER_TEMP\devstack-signing.pfx" -Force -ErrorAction SilentlyContinue
+        run: Remove-Item "$env:RUNNER_TEMP\dockiva-signing.pfx" -Force -ErrorAction SilentlyContinue
 
   linux:
     name: Linux ${{ matrix.arch }} release
@@ -398,8 +398,8 @@ jobs:
           version="$(tr -d '[:space:]' < VERSION)"
           ./scripts/build-linux.sh "${{ matrix.arch }}"
           mkdir -p dist/release/stage
-          install -m 0755 "dist/linux-${{ matrix.arch }}/devstack" dist/release/stage/devstack
-          tar -C dist/release/stage -czf "dist/release/DevStack-$version-linux-${{ matrix.arch }}.tar.gz" devstack
+          install -m 0755 "dist/linux-${{ matrix.arch }}/dockiva" dist/release/stage/dockiva
+          tar -C dist/release/stage -czf "dist/release/Dockiva-$version-linux-${{ matrix.arch }}.tar.gz" dockiva
           rm -rf dist/release/stage
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -451,6 +451,6 @@ jobs:
           else
             gh release create "$RELEASE_TAG" release-assets/* \
               --verify-tag \
-              --title "DevStack v$version" \
+              --title "Dockiva v$version" \
               --generate-notes
           fi

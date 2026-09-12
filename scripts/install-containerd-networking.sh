@@ -20,7 +20,7 @@ if [[ -z "$desktop_user" && -n "${PKEXEC_UID:-}" ]]; then
   desktop_user="$(id -nu "$PKEXEC_UID")"
 fi
 if [[ -z "$desktop_user" ]]; then
-  echo "Could not determine the desktop user for DevStack helper access."
+  echo "Could not determine the desktop user for Dockiva helper access."
   exit 1
 fi
 
@@ -65,20 +65,20 @@ else
   fi
 fi
 
-echo "Building devstack-netd..."
+echo "Building dockiva-netd..."
 # The installer may be launched through pkexec, where root cannot necessarily
 # read the checkout's Git metadata. The helper does not need VCS stamping.
-helper_build="$(mktemp /tmp/devstack-netd.XXXXXX)"
+helper_build="$(mktemp /tmp/dockiva-netd.XXXXXX)"
 trap 'rm -f "$helper_build"' EXIT
-go build -buildvcs=false -o "$helper_build" ./cmd/devstack-netd
+go build -buildvcs=false -o "$helper_build" ./cmd/dockiva-netd
 
-echo "Creating devstack group..."
-sudo groupadd -f devstack
-sudo usermod -aG devstack "$desktop_user"
+echo "Creating dockiva group..."
+sudo groupadd -f dockiva
+sudo usermod -aG dockiva "$desktop_user"
 
 echo "Installing helper..."
 sudo install -d -m 0755 /usr/local/libexec
-sudo install -m 0755 "$helper_build" /usr/local/libexec/devstack-netd
+sudo install -m 0755 "$helper_build" /usr/local/libexec/dockiva-netd
 
 echo "Installing CNI config..."
 sudo install -d -m 0755 /etc/cni/net.d
@@ -86,14 +86,14 @@ sudo install -d -m 0755 /etc/cni/net.d
 # exists before systemd creates the helper's mount namespace.
 sudo install -d -m 0755 /var/lib/cni
 
-cat <<'EOF' | sudo tee /etc/cni/net.d/10-devstack.conflist >/dev/null
+cat <<'EOF' | sudo tee /etc/cni/net.d/10-dockiva.conflist >/dev/null
 {
   "cniVersion": "1.0.0",
-  "name": "devstack-net",
+  "name": "dockiva-net",
   "plugins": [
     {
       "type": "bridge",
-      "bridge": "devstack0",
+      "bridge": "dockiva0",
       "isGateway": true,
       "ipMasq": true,
       "hairpinMode": true,
@@ -124,49 +124,49 @@ cat <<'EOF' | sudo tee /etc/cni/net.d/10-devstack.conflist >/dev/null
   ]
 }
 EOF
-	sudo chmod 0644 /etc/cni/net.d/10-devstack.conflist
+	sudo chmod 0644 /etc/cni/net.d/10-dockiva.conflist
 
 echo "Installing systemd unit..."
 
-cat <<'EOF' | sudo tee /etc/systemd/system/devstack-netd.service >/dev/null
+cat <<'EOF' | sudo tee /etc/systemd/system/dockiva-netd.service >/dev/null
 [Unit]
-Description=DevStack containerd CNI network helper
+Description=Dockiva containerd CNI network helper
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/libexec/devstack-netd
+ExecStart=/usr/local/libexec/dockiva-netd
 Restart=on-failure
 RestartSec=2
-RuntimeDirectory=devstack
+RuntimeDirectory=dockiva
 RuntimeDirectoryMode=0755
-StateDirectory=devstack
+StateDirectory=dockiva
 StateDirectoryMode=0750
 ProtectHome=true
 ProtectSystem=strict
 PrivateTmp=true
-ReadWritePaths=/run /var/lib/devstack /var/lib/cni
+ReadWritePaths=/run /var/lib/dockiva /var/lib/cni
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN CAP_NET_RAW CAP_DAC_OVERRIDE CAP_CHOWN CAP_FOWNER
 AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_ADMIN CAP_NET_RAW CAP_DAC_OVERRIDE CAP_CHOWN CAP_FOWNER
 
 [Install]
 WantedBy=multi-user.target
 EOF
-	sudo chmod 0644 /etc/systemd/system/devstack-netd.service
+	sudo chmod 0644 /etc/systemd/system/dockiva-netd.service
 
 sudo systemctl daemon-reload
 # `enable --now` does not replace an already-running helper after an upgrade.
 # Restart so the newly installed binary and API are immediately active.
-sudo systemctl enable devstack-netd
-sudo systemctl restart devstack-netd
+sudo systemctl enable dockiva-netd
+sudo systemctl restart dockiva-netd
 
 if command -v setfacl >/dev/null 2>&1; then
   # systemd can return from restart before the helper has created its socket.
   # Wait briefly so a first-run GUI session gets access immediately.
   for _attempt in 1 2 3 4 5; do
-    if [[ -S /run/devstack/netd.sock ]]; then
-      sudo setfacl -m "u:$desktop_user:rw" /run/devstack/netd.sock || true
+    if [[ -S /run/dockiva/netd.sock ]]; then
+      sudo setfacl -m "u:$desktop_user:rw" /run/dockiva/netd.sock || true
       break
     fi
     sleep 1
@@ -175,7 +175,7 @@ fi
 
 echo
 echo "Networking helper installed."
-echo "User $desktop_user was added to group: devstack"
+echo "User $desktop_user was added to group: dockiva"
 echo
 echo "Log out/in for permanent group access."
 echo "For this login session, setfacl was used when available."

@@ -1,4 +1,4 @@
-module devstack
+module dockiva
 
 go 1.26.3
 

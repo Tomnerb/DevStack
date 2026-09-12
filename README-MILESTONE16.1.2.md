@@ -1,7 +1,7 @@
-# DevStack — Milestone 16.1.2: Main App Container Group Fix
+# Dockiva — Milestone 16.1.2: Main App Container Group Fix
 
 This fixes the issue where many Compose groups appeared to disappear in the
-main DevStack Containers page.
+main Dockiva Containers page.
 
 ## Root cause
 
@@ -22,13 +22,13 @@ System Docker Engine
 
 They have different images, containers, and Compose projects.
 
-Milestone 16.1 could see Docker Desktop offline and silently reconnect DevStack
+Milestone 16.1 could see Docker Desktop offline and silently reconnect Dockiva
 to System Docker. The API became healthy, but the main Containers page was then
 showing the system daemon's smaller/different container store.
 
 ## Fix
 
-DevStack now remembers its configured Docker endpoint and preserves that engine
+Dockiva now remembers its configured Docker endpoint and preserves that engine
 identity.
 
 If Docker Desktop was selected:
@@ -68,20 +68,20 @@ This makes it clear which daemon owns the containers shown in the main app.
 ## Apply
 
 ```bash
-chmod +x devstack-milestone16.1.2/apply.sh
+chmod +x dockiva-milestone16.1.2/apply.sh
 
-./devstack-milestone16.1.2/apply.sh \
-  /home/darith/mbanq/devstack/devstack
+./dockiva-milestone16.1.2/apply.sh \
+  /home/darith/mbanq/dockiva/dockiva
 ```
 
 Then:
 
 ```bash
-cd /home/darith/mbanq/devstack/devstack
+cd /home/darith/mbanq/dockiva/dockiva
 go mod tidy
 wails3 build -tags gtk3
-./bin/devstack
+./bin/dockiva
 ```
 
-After starting DevStack, open Engine and verify it says `Docker Desktop` if
+After starting Dockiva, open Engine and verify it says `Docker Desktop` if
 those are the containers/projects you expect.

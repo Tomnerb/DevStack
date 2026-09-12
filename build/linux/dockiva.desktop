@@ -1,14 +1,12 @@
 [Desktop Entry]
-Version=1.0
+Type=Application
 Name=Dockiva
 Comment=Native container workspace
-# The Exec line includes %u to pass the URL to the application
-Exec=/usr/local/bin/dockiva %u
-Terminal=false
-Type=Application
+Exec=dockiva
 Icon=dockiva
 Categories=Development;Utility;
+Terminal=false
 Keywords=containers;docker;compose;containerd;
+Version=1.0
+StartupNotify=false
 StartupWMClass=Dockiva
-
- 

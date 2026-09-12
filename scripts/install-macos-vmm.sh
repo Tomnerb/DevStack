@@ -8,7 +8,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
-BIN="native/macos/DevStackVMM/.build/release/devstack-vmm"
+BIN="native/macos/DockivaVMM/.build/release/dockiva-vmm"
 
 if [[ ! -x "$BIN" ]]; then
   ./scripts/build-macos-vmm.sh
@@ -17,10 +17,10 @@ fi
 DEST="$HOME/.local/libexec"
 mkdir -p "$DEST"
 
-cp -f "$BIN" "$DEST/devstack-vmm"
-chmod 0755 "$DEST/devstack-vmm"
+cp -f "$BIN" "$DEST/dockiva-vmm"
+chmod 0755 "$DEST/dockiva-vmm"
 
 echo "Installed:"
-echo "  $DEST/devstack-vmm"
+echo "  $DEST/dockiva-vmm"
 echo
-echo "DevStack automatically checks this path."
+echo "Dockiva automatically checks this path."

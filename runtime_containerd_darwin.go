@@ -18,7 +18,7 @@ import (
 	"github.com/containerd/errdefs"
 )
 
-const devstackDarwinContainerdNamespace = "devstack"
+const dockivaDarwinContainerdNamespace = "dockiva"
 
 type darwinContainerdRuntime struct {
 	socket      string
@@ -33,7 +33,7 @@ func newDarwinContainerdRuntime(
 	cli, err := containerd.New(
 		socket,
 		containerd.WithDefaultNamespace(
-			devstackDarwinContainerdNamespace,
+			dockivaDarwinContainerdNamespace,
 		),
 		containerd.WithTimeout(5*time.Second),
 	)
@@ -43,7 +43,7 @@ func newDarwinContainerdRuntime(
 
 	runtime := &darwinContainerdRuntime{
 		socket:    socket,
-		namespace: devstackDarwinContainerdNamespace,
+		namespace: dockivaDarwinContainerdNamespace,
 		client:    cli,
 	}
 
@@ -93,7 +93,7 @@ func (r *darwinContainerdRuntime) ensureNamespace(
 		ctx,
 		r.namespace,
 		map[string]string{
-			"devstack.io/managed": "true",
+			"dockiva.io/managed": "true",
 		},
 	)
 
@@ -160,7 +160,7 @@ func (r *darwinContainerdRuntime) Info(
 
 	info.Connected = true
 	info.Message = fmt.Sprintf(
-		"containerd %s inside DevStack's native Virtualization.framework guest · namespace %s · snapshotter %s",
+		"containerd %s inside Dockiva's native Virtualization.framework guest · namespace %s · snapshotter %s",
 		version.Version,
 		r.namespace,
 		r.snapshotter,
@@ -308,15 +308,15 @@ func (r *darwinContainerdRuntime) CreateRuntimeContainer(
 		containerd.WithSnapshotter(r.snapshotter),
 		containerd.WithImage(image),
 		containerd.WithNewSnapshot(
-			"devstack-"+name,
+			"dockiva-"+name,
 			image,
 		),
 		containerd.WithNewSpec(specOpts...),
 		containerd.WithContainerLabels(
 			map[string]string{
-				"devstack.io/managed":     "true",
-				"devstack.io/image":       reference,
-				"devstack.io/snapshotter": r.snapshotter,
+				"dockiva.io/managed":     "true",
+				"dockiva.io/image":       reference,
+				"dockiva.io/snapshotter": r.snapshotter,
 			},
 		),
 	)
@@ -641,7 +641,7 @@ func sanitizeDarwinContainerID(value string) string {
 }
 
 func platformRuntimeCandidates() []RuntimeCandidateInfo {
-	stateDir, err := devstackVMMStateDir()
+	stateDir, err := dockivaVMMStateDir()
 	if err != nil {
 		stateDir = ""
 	}
@@ -689,7 +689,7 @@ func createPlatformRuntime(
 		)
 	}
 
-	stateDir, err := devstackVMMStateDir()
+	stateDir, err := dockivaVMMStateDir()
 	if err != nil {
 		return nil, err
 	}
@@ -708,8 +708,8 @@ func createPlatformRuntime(
 	return newDarwinContainerdRuntime(socket)
 }
 
-func devstackDarwinGuestAssetsReady() bool {
-	guestDir, err := devstackGuestDir()
+func dockivaDarwinGuestAssetsReady() bool {
+	guestDir, err := dockivaGuestDir()
 	if err != nil {
 		return false
 	}

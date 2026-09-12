@@ -84,10 +84,10 @@ async function start() {
   terminal.open(terminalHost.value)
   fitAddon.fit()
 
-  terminal.writeln('\x1b[90mDevStack: connecting to /bin/sh...\x1b[0m')
+  terminal.writeln('\x1b[90mDockiva: connecting to /bin/sh...\x1b[0m')
 
   unsubscribeEvent = Events.On(
-    'devstack:terminal-output',
+    'dockiva:terminal-output',
     (payload: any) => {
       // Wails v3 delivers a WailsEvent wrapper. Its custom event payload is
       // under `.data`, not on the wrapper itself.
@@ -106,7 +106,7 @@ async function start() {
       }
 
       if (data.error) {
-        terminal?.writeln(`\r\n\x1b[31m[DevStack] ${data.error}\x1b[0m`)
+        terminal?.writeln(`\r\n\x1b[31m[Dockiva] ${data.error}\x1b[0m`)
       }
 
       if (data.closed) {
@@ -153,7 +153,7 @@ async function start() {
   } catch (err) {
     status.value = 'closed'
     terminal.writeln(
-      `\r\n\x1b[31m[DevStack] ${
+      `\r\n\x1b[31m[Dockiva] ${
         err instanceof Error ? err.message : String(err)
       }\x1b[0m`,
     )
@@ -203,7 +203,7 @@ async function runDraftCommand() {
     )
   } catch (err) {
     terminal?.writeln(
-      `\r\n\x1b[31m[DevStack] ${err instanceof Error ? err.message : String(err)}\x1b[0m`,
+      `\r\n\x1b[31m[Dockiva] ${err instanceof Error ? err.message : String(err)}\x1b[0m`,
     )
   } finally {
     commandInput.value?.focus()

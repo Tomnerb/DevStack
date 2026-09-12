@@ -23,7 +23,7 @@ func platformRuntimeCandidates() []RuntimeCandidateInfo {
 			Detected:     false,
 			Selectable:   false,
 			Experimental: true,
-			Message:      "Direct containerd will run inside DevStack's minimal Linux guest on this platform in a future milestone.",
+			Message:      "Direct containerd will run inside Dockiva's minimal Linux guest on this platform in a future milestone.",
 		},
 	}
 }

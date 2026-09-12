@@ -80,7 +80,7 @@ func (s *AppService) CheckForUpdates() (UpdateInfo, error) {
 		return UpdateInfo{
 			CurrentVersion: current,
 			LatestVersion:  current,
-			Message:        "DevStack is up to date.",
+			Message:        "Dockiva is up to date.",
 		}, nil
 	}
 
@@ -88,7 +88,7 @@ func (s *AppService) CheckForUpdates() (UpdateInfo, error) {
 }
 
 // ApplyUpdate downloads the platform-specific release, verifies its SHA-256
-// digest, stages it, and restarts DevStack through Wails' detached updater
+// digest, stages it, and restarts Dockiva through Wails' detached updater
 // helper. The running application is only replaced after it has exited.
 func (s *AppService) ApplyUpdate() error {
 	app := application.Get()
@@ -126,7 +126,7 @@ func updateInfoFromRelease(current string, release *updater.Release) (UpdateInfo
 		ReleaseURL:     releaseURL,
 		PublishedAt:    release.PublishedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		Notes:          strings.TrimSpace(release.Notes),
-		Message:        fmt.Sprintf("DevStack %s is available.", latest),
+		Message:        fmt.Sprintf("Dockiva %s is available.", latest),
 		ArtifactName:   release.Artifact.Filename,
 		ArtifactSize:   release.Artifact.Size,
 	}, nil
@@ -151,8 +151,10 @@ func validateReleaseURL(raw string) error {
 	if parsed.Scheme != "https" || !strings.EqualFold(parsed.Hostname(), "github.com") {
 		return errors.New("release URL must use github.com over HTTPS")
 	}
-	if !strings.HasPrefix(strings.ToLower(parsed.EscapedPath()), "/tomnerb/devstack/releases/") {
-		return errors.New("release URL does not belong to Tomnerb/DevStack")
+	releasePath := strings.ToLower(parsed.EscapedPath())
+	if !strings.HasPrefix(releasePath, "/tomnerb/dockiva/releases/") &&
+		!strings.HasPrefix(releasePath, "/tomnerb/devstack/releases/") {
+		return errors.New("release URL does not belong to Tomnerb/Dockiva")
 	}
 	return nil
 }

@@ -9,7 +9,7 @@ if [[ -z "$SOURCE" ]]; then
 fi
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "This installer copies guest assets into the macOS DevStack data directory."
+  echo "This installer copies guest assets into the macOS Dockiva data directory."
   exit 1
 fi
 
@@ -20,7 +20,7 @@ if [[ ! -f "$SOURCE/vmlinux" ]] || [[ ! -f "$SOURCE/rootfs.ext4" ]]; then
   exit 1
 fi
 
-DEST="$HOME/Library/Application Support/DevStack/guest"
+DEST="$HOME/Library/Application Support/Dockiva/guest"
 
 mkdir -p "$DEST"
 
@@ -31,5 +31,5 @@ if [[ -f "$SOURCE/manifest.txt" ]]; then
   cp -f "$SOURCE/manifest.txt" "$DEST/manifest.txt"
 fi
 
-echo "Installed DevStack native macOS guest assets:"
+echo "Installed Dockiva native macOS guest assets:"
 ls -lh "$DEST/vmlinux" "$DEST/rootfs.ext4"

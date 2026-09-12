@@ -157,11 +157,11 @@ func (s *DockerService) replaceRuntime(next ContainerRuntime) {
 
 func (s *DockerService) useOfflineNativeRuntime(status EngineStatus) string {
 	provider := nativeRuntimeProvider()
-	displayName := "DevStack Native"
+	displayName := "Dockiva Native"
 	if status.Platform == "darwin" {
-		displayName = "DevStack Native VM"
+		displayName = "Dockiva Native VM"
 	} else if status.Platform == "windows" {
-		displayName = "DevStack WSL2"
+		displayName = "Dockiva WSL2"
 	}
 
 	s.replaceRuntime(&offlineRuntime{info: ContainerRuntimeInfo{

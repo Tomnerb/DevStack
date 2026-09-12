@@ -3,19 +3,19 @@
 import PackageDescription
 
 let package = Package(
-    name: "DevStackVMM",
+    name: "DockivaVMM",
     platforms: [
         .macOS(.v13)
     ],
     products: [
         .executable(
-            name: "devstack-vmm",
-            targets: ["DevStackVMM"]
+            name: "dockiva-vmm",
+            targets: ["DockivaVMM"]
         )
     ],
     targets: [
         .executableTarget(
-            name: "DevStackVMM",
+            name: "DockivaVMM",
             exclude: [
                 "main.swift.20260910-163040.bak",
                 "main.swift.20260910-164234.bak"

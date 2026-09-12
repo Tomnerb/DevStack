@@ -35,7 +35,7 @@ func (backend linuxEngineBackend) Status(_ *DockerService, _ string) EngineStatu
 		Message:         message,
 	}
 	if reachable {
-		status.Message = "DevStack native containerd is running."
+		status.Message = "Dockiva native containerd is running."
 	}
 	return status
 }
@@ -45,7 +45,7 @@ func (backend linuxEngineBackend) Start(service *DockerService, option string) (
 	if !status.Running {
 		service.useOfflineNativeRuntime(status)
 		return EngineActionResult{Status: status}, errors.New(
-			"DevStack native containerd is not running; install/start containerd and ensure its socket is accessible",
+			"Dockiva native containerd is not running; install/start containerd and ensure its socket is accessible",
 		)
 	}
 	if err := service.SelectContainerRuntime(nativeRuntimeProvider()); err != nil {
@@ -53,18 +53,18 @@ func (backend linuxEngineBackend) Start(service *DockerService, option string) (
 	}
 	return EngineActionResult{
 		Status: status,
-		Output: "Connected to DevStack native containerd at " + status.Endpoint + ".",
+		Output: "Connected to Dockiva native containerd at " + status.Endpoint + ".",
 	}, nil
 }
 
 func (backend linuxEngineBackend) Stop(service *DockerService, option string) (EngineActionResult, error) {
 	return EngineActionResult{Status: backend.Status(service, option)},
-		errors.New("DevStack will not stop the host containerd service")
+		errors.New("Dockiva will not stop the host containerd service")
 }
 
 func (backend linuxEngineBackend) Delete(service *DockerService, option string) (EngineActionResult, error) {
 	return EngineActionResult{Status: backend.Status(service, option)},
-		errors.New("native Linux containerd is not a DevStack-owned VM")
+		errors.New("native Linux containerd is not a Dockiva-owned VM")
 }
 
 func (backend linuxEngineBackend) Provision(service *DockerService, option string) (EngineActionResult, error) {

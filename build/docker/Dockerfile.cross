@@ -204,7 +204,7 @@ if [ "$GOOS" = "windows" ]; then
     LDFLAGS="-s -w -H windowsgui"
 fi
 
-LDFLAGS="$LDFLAGS -X main.buildVersion=${DEVSTACK_VERSION:-0.1.0} -X main.buildCommit=${DEVSTACK_COMMIT:-development} -X main.buildDate=${DEVSTACK_BUILD_DATE:-unknown}"
+LDFLAGS="$LDFLAGS -X main.buildVersion=${DOCKIVA_VERSION:-0.1.0} -X main.buildCommit=${DOCKIVA_COMMIT:-development} -X main.buildDate=${DOCKIVA_BUILD_DATE:-unknown}"
 
 TAGS="production"
 if [ -n "$EXTRA_TAGS" ]; then

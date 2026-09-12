@@ -11,8 +11,8 @@ import (
 func TestStageBundledGuestAssets(t *testing.T) {
 	source := t.TempDir()
 	destination := t.TempDir()
-	t.Setenv("DEVSTACK_GUEST_ASSETS_PATH", source)
-	t.Setenv("DEVSTACK_GUEST_DIR", destination)
+	t.Setenv("DOCKIVA_GUEST_ASSETS_PATH", source)
+	t.Setenv("DOCKIVA_GUEST_DIR", destination)
 
 	for name, content := range map[string]string{
 		"vmlinux":      "kernel",

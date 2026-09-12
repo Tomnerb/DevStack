@@ -8,27 +8,27 @@
         AllowPromptForPassword="false">
     </Settings>
     <Installer
-        Path="devstack"
+        Path="dockiva"
         Arguments=""
-        InstallLocation="C:\Program Files\My Company\My Product">
+        InstallLocation="C:\Program Files\Tomnerb\Dockiva">
     </Installer>
     <PackageInformation
-        PackageName="My Product"
-        PackageDisplayName="My Product"
-        PublisherName="CN=My Company"
-        PublisherDisplayName="My Company"
+        PackageName="Dockiva"
+        PackageDisplayName="Dockiva"
+        PublisherName="CN=Tomnerb"
+        PublisherDisplayName="Tomnerb"
         Version="0.1.0.0"
-        PackageDescription="A devstack application">
+        PackageDescription="A native container workspace">
         <Capabilities>
             <Capability Name="runFullTrust" />
             
         </Capabilities>
         <Applications>
             <Application
-                Id="com.example.devstack"
-                Description="A devstack application"
-                DisplayName="My Product"
-                ExecutableName="devstack"
+                Id="com.tomnerb.dockiva"
+                Description="A native container workspace"
+                DisplayName="Dockiva"
+                ExecutableName="dockiva"
                 EntryPoint="Windows.FullTrustApplication">
                 
             </Application>
@@ -41,13 +41,13 @@
         </Dependencies>
         <Properties>
             <Framework>false</Framework>
-            <DisplayName>My Product</DisplayName>
-            <PublisherDisplayName>My Company</PublisherDisplayName>
-            <Description>A devstack application</Description>
+            <DisplayName>Dockiva</DisplayName>
+            <PublisherDisplayName>Tomnerb</PublisherDisplayName>
+            <Description>A native container workspace</Description>
             <Logo>Assets\AppIcon.png</Logo>
         </Properties>
     </PackageInformation>
-    <SaveLocation PackagePath="devstack.msix" />
+    <SaveLocation PackagePath="dockiva.msix" />
     <PackageIntegrity>
         <CertificatePath></CertificatePath>
     </PackageIntegrity>

@@ -6,7 +6,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
-echo "DevStack native macOS backend"
+echo "Dockiva native macOS backend"
 echo
 
 echo "macOS:"
@@ -19,10 +19,10 @@ echo
 
 echo "VMM helper:"
 for path in \
-  "${DEVSTACK_VMM_PATH:-}" \
-  "$HOME/.local/libexec/devstack-vmm" \
-  "/usr/local/libexec/devstack-vmm" \
-  "/opt/homebrew/libexec/devstack-vmm"
+  "${DOCKIVA_VMM_PATH:-}" \
+  "$HOME/.local/libexec/dockiva-vmm" \
+  "/usr/local/libexec/dockiva-vmm" \
+  "/opt/homebrew/libexec/dockiva-vmm"
 do
   [[ -z "$path" ]] && continue
   if [[ -x "$path" ]]; then
@@ -34,12 +34,12 @@ done
 
 echo
 echo "Guest assets:"
-GUEST="$HOME/Library/Application Support/DevStack/guest"
+GUEST="$HOME/Library/Application Support/Dockiva/guest"
 ls -lh "$GUEST/vmlinux" "$GUEST/rootfs.ext4" 2>/dev/null || true
 
 echo
 echo "Runtime proxy:"
-RUN="$HOME/Library/Application Support/DevStack/run"
+RUN="$HOME/Library/Application Support/Dockiva/run"
 ls -l "$RUN/containerd.sock" 2>/dev/null || echo "  not running"
 
 echo

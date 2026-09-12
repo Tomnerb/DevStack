@@ -1,6 +1,6 @@
-# Contributing to DevStack
+# Contributing to Dockiva
 
-Thank you for helping improve DevStack. The project is under active
+Thank you for helping improve Dockiva. The project is under active
 development, and native-runtime behavior can differ by operating system.
 
 ## Before opening a change
@@ -9,7 +9,7 @@ development, and native-runtime behavior can differ by operating system.
 - Open an issue before large architecture or runtime changes.
 - Never include credentials, signing material, container data, or local guest
   images in a commit.
-- Keep DevStack Native and external Docker endpoint identities separate.
+- Keep Dockiva Native and external Docker endpoint identities separate.
 - Preserve unrelated work in the tree and keep commits focused.
 
 Security vulnerabilities must follow [SECURITY.md](SECURITY.md), not the public

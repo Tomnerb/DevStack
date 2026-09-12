@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-const devstackNetworkHelperSocket = "/run/devstack/netd.sock"
+const dockivaNetworkHelperSocket = "/run/dockiva/netd.sock"
 
 type NetworkHelperStatus struct {
 	Ready      bool     `json:"ready"`
@@ -79,11 +79,11 @@ func networkHelperImportDockerImages(ctx context.Context, archive string) error 
 
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network string, address string) (net.Conn, error) {
-			return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", devstackNetworkHelperSocket)
+			return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", dockivaNetworkHelperSocket)
 		},
 	}
 	defer transport.CloseIdleConnections()
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://devstack/v1/migration/images/upload", file)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://dockiva/v1/migration/images/upload", file)
 	if err != nil {
 		return err
 	}
@@ -121,10 +121,10 @@ func networkHelperUploadDockerVolume(ctx context.Context, name, archive string) 
 	}
 	defer file.Close()
 	transport := &http.Transport{DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-		return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", devstackNetworkHelperSocket)
+		return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", dockivaNetworkHelperSocket)
 	}}
 	defer transport.CloseIdleConnections()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://devstack/v1/migration/volumes/upload?name="+url.QueryEscape(name), file)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://dockiva/v1/migration/volumes/upload?name="+url.QueryEscape(name), file)
 	if err != nil {
 		return err
 	}
@@ -193,7 +193,7 @@ func networkHelperTerminalClose(ctx context.Context, session string) error {
 
 func networkHelperStatus(ctx context.Context) NetworkHelperStatus {
 	fallback := NetworkHelperStatus{
-		Message: "DevStack network helper is not installed or not accessible.",
+		Message: "Dockiva network helper is not installed or not accessible.",
 	}
 
 	var response NetworkHelperStatus
@@ -260,10 +260,10 @@ func networkHelperRequest(
 	body any,
 	out any,
 ) error {
-	if _, err := os.Stat(devstackNetworkHelperSocket); err != nil {
+	if _, err := os.Stat(dockivaNetworkHelperSocket); err != nil {
 		return fmt.Errorf(
 			"network helper socket %s is unavailable: %w; run scripts/install-containerd-networking.sh",
-			devstackNetworkHelperSocket,
+			dockivaNetworkHelperSocket,
 			err,
 		)
 	}
@@ -276,7 +276,7 @@ func networkHelperRequest(
 		) (net.Conn, error) {
 			return (&net.Dialer{
 				Timeout: 2 * time.Second,
-			}).DialContext(ctx, "unix", devstackNetworkHelperSocket)
+			}).DialContext(ctx, "unix", dockivaNetworkHelperSocket)
 		},
 	}
 	// This short-lived client is used for individual helper RPCs. Explicitly
@@ -302,7 +302,7 @@ func networkHelperRequest(
 	request, err := http.NewRequestWithContext(
 		ctx,
 		method,
-		"http://devstack"+path,
+		"http://dockiva"+path,
 		reader,
 	)
 	if err != nil {
@@ -318,8 +318,8 @@ func networkHelperRequest(
 		if errors.Is(err, os.ErrPermission) ||
 			strings.Contains(strings.ToLower(err.Error()), "permission denied") {
 			return fmt.Errorf(
-				"permission denied connecting to %s; log out/in after joining the devstack group or rerun the networking installer",
-				devstackNetworkHelperSocket,
+				"permission denied connecting to %s; log out/in after joining the dockiva group or rerun the networking installer",
+				dockivaNetworkHelperSocket,
 			)
 		}
 		return err

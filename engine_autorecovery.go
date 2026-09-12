@@ -40,7 +40,7 @@ func (s *DockerService) AutoRecoverEngine(
 	}
 
 	log.Printf(
-		"DevStack engine auto-recovery could not start backend %q",
+		"Dockiva engine auto-recovery could not start backend %q",
 		strings.TrimSpace(backend),
 	)
 }

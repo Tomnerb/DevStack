@@ -102,7 +102,7 @@ type DockerMigrationStatus struct {
 	Error          string `json:"error,omitempty"`
 }
 
-const dockerMigrationStatusEvent = "devstack:migration-status"
+const dockerMigrationStatusEvent = "dockiva:migration-status"
 
 func (s *DockerService) GetDockerMigrationStatus() DockerMigrationStatus {
 	s.migrationMu.Lock()
@@ -177,7 +177,7 @@ func (s *DockerService) StartDockerContainerMigration() DockerMigrationStatus {
 	s.migrationStatus = DockerMigrationStatus{
 		Kind:    "container",
 		State:   "running",
-		Message: "Preparing Docker containers for migration into DevStack Native.",
+		Message: "Preparing Docker containers for migration into Dockiva Native.",
 	}
 	s.migrationStarted = time.Now()
 	status := s.migrationStatus
@@ -275,7 +275,7 @@ func (s *DockerService) GetDockerMigrationPreview() DockerMigrationPreview {
 	return preview
 }
 
-// MigrateDockerImages copies Docker images into the DevStack Native containerd
+// MigrateDockerImages copies Docker images into the Dockiva Native containerd
 // namespace one at a time. This avoids a single giant archive, gives the user
 // meaningful progress, and never modifies the source Docker store.
 func (s *DockerService) MigrateDockerImages() (DockerCLIResult, error) {
@@ -315,7 +315,7 @@ func (s *DockerService) MigrateDockerImages() (DockerCLIResult, error) {
 			CurrentImage:   label,
 		})
 	}
-	return DockerCLIResult{Output: fmt.Sprintf("Imported %d Docker image(s) into DevStack Native.", len(refs))}, nil
+	return DockerCLIResult{Output: fmt.Sprintf("Imported %d Docker image(s) into Dockiva Native.", len(refs))}, nil
 }
 
 func (s *DockerService) migrateSingleDockerImage(parentCtx context.Context, dockerPath, ref string, index, total int) error {
@@ -324,7 +324,7 @@ func (s *DockerService) migrateSingleDockerImage(parentCtx context.Context, dock
 		return errors.New("docker image reference is empty")
 	}
 
-	archive, err := os.CreateTemp("", "devstack-docker-images-*.tar")
+	archive, err := os.CreateTemp("", "dockiva-docker-images-*.tar")
 	if err != nil {
 		return err
 	}
@@ -364,7 +364,7 @@ func (s *DockerService) migrateSingleDockerImage(parentCtx context.Context, dock
 	importErr := networkHelperImportDockerImages(importCtx, archivePath)
 	importCancel()
 	if importErr != nil {
-		return fmt.Errorf("import Docker image %s into DevStack Native: %w", ref, importErr)
+		return fmt.Errorf("import Docker image %s into Dockiva Native: %w", ref, importErr)
 	}
 
 	return nil
@@ -381,7 +381,7 @@ func validDockerImageRefs(refs []string) []string {
 	return valid
 }
 
-// MigrateDockerVolumes copies local Docker named-volume data into DevStack's
+// MigrateDockerVolumes copies local Docker named-volume data into Dockiva's
 // managed volume store. It never stops containers or deletes Docker volumes.
 func (s *DockerService) MigrateDockerVolumes() (DockerCLIResult, error) {
 	output, err := runDockerCLI(30*time.Second, "", "volume", "ls", "-q")
@@ -396,7 +396,7 @@ func (s *DockerService) MigrateDockerVolumes() (DockerCLIResult, error) {
 	}
 	for index, volume := range volumes {
 		s.emitMigrationStatus(DockerMigrationStatus{Kind: "volume", State: "running", Message: fmt.Sprintf("Exporting volume %d of %d…", index+1, len(volumes)), TotalImages: len(volumes), ImportedImages: index, CurrentImage: volume})
-		archive, createErr := os.CreateTemp("", "devstack-docker-volume-*.tar")
+		archive, createErr := os.CreateTemp("", "dockiva-docker-volume-*.tar")
 		if createErr != nil {
 			return DockerCLIResult{}, createErr
 		}
@@ -420,11 +420,11 @@ func (s *DockerService) MigrateDockerVolumes() (DockerCLIResult, error) {
 		}
 		s.emitMigrationStatus(DockerMigrationStatus{Kind: "volume", State: "running", Message: fmt.Sprintf("Copied volume %d of %d", index+1, len(volumes)), TotalImages: len(volumes), ImportedImages: index + 1, CurrentImage: volume})
 	}
-	s.emitMigrationStatus(DockerMigrationStatus{Kind: "volume", State: "complete", Message: fmt.Sprintf("Copied %d Docker volume(s) into DevStack Native.", len(volumes)), TotalImages: len(volumes), ImportedImages: len(volumes)})
-	return DockerCLIResult{Output: fmt.Sprintf("Copied %d Docker volume(s) into DevStack Native.", len(volumes))}, nil
+	s.emitMigrationStatus(DockerMigrationStatus{Kind: "volume", State: "complete", Message: fmt.Sprintf("Copied %d Docker volume(s) into Dockiva Native.", len(volumes)), TotalImages: len(volumes), ImportedImages: len(volumes)})
+	return DockerCLIResult{Output: fmt.Sprintf("Copied %d Docker volume(s) into Dockiva Native.", len(volumes))}, nil
 }
 
-// MigrateDockerContainers copies stopped Docker containers into DevStack Native.
+// MigrateDockerContainers copies stopped Docker containers into Dockiva Native.
 func (s *DockerService) MigrateDockerContainers() (DockerCLIResult, error) {
 	activeRuntime := s.currentRuntime()
 	runtime, ok := activeRuntime.(runtimeContainerCreator)
@@ -487,7 +487,7 @@ func (s *DockerService) MigrateDockerContainers() (DockerCLIResult, error) {
 	// successfully created before a later one failed.
 	existingContainers, err := activeRuntime.ListContainers(ctx)
 	if err != nil {
-		return DockerCLIResult{}, fmt.Errorf("list DevStack containers before migration: %w", err)
+		return DockerCLIResult{}, fmt.Errorf("list Dockiva containers before migration: %w", err)
 	}
 	existingByName := make(map[string]struct{}, len(existingContainers))
 	for _, existing := range existingContainers {
@@ -541,7 +541,7 @@ func (s *DockerService) MigrateDockerContainers() (DockerCLIResult, error) {
 			s.setDockerMigrationProgress(DockerMigrationStatus{
 				Kind:           "container",
 				State:          "running",
-				Message:        fmt.Sprintf("Container %d of %d is already in DevStack", index+1, len(stopped)),
+				Message:        fmt.Sprintf("Container %d of %d is already in Dockiva", index+1, len(stopped)),
 				TotalImages:    len(stopped),
 				ImportedImages: index + 1,
 				CurrentImage:   name,
@@ -669,9 +669,9 @@ func (s *DockerService) MigrateDockerContainers() (DockerCLIResult, error) {
 	}
 
 	if alreadyMigrated > 0 {
-		return DockerCLIResult{Output: fmt.Sprintf("Migrated %d stopped Docker container(s) into DevStack Native; %d already migrated.", created, alreadyMigrated)}, nil
+		return DockerCLIResult{Output: fmt.Sprintf("Migrated %d stopped Docker container(s) into Dockiva Native; %d already migrated.", created, alreadyMigrated)}, nil
 	}
-	return DockerCLIResult{Output: fmt.Sprintf("Migrated %d stopped Docker container(s) into DevStack Native.", created)}, nil
+	return DockerCLIResult{Output: fmt.Sprintf("Migrated %d stopped Docker container(s) into Dockiva Native.", created)}, nil
 }
 
 func isDockerImageID(value string) bool {
@@ -749,7 +749,7 @@ func isContainerdImageMissing(err error) bool {
 		return false
 	}
 	message := strings.ToLower(strings.TrimSpace(err.Error()))
-	return strings.Contains(message, "not present in the devstack namespace")
+	return strings.Contains(message, "not present in the dockiva namespace")
 }
 
 type dockerPortBinding struct {

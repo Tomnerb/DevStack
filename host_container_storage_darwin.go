@@ -178,8 +178,8 @@ func darwinContainerStorageLocations() ([]darwinContainerStorageLocation, error)
 	dockerDesktopSocket := filepath.Join(home, ".docker", "run", "docker.sock")
 	dockerEndpoint := "unix://" + dockerDesktopSocket
 
-	devstackRoot := filepath.Join(home, "Library", "Application Support", "DevStack")
-	devstackSocket := filepath.Join(devstackRoot, "run", "docker.sock")
+	dockivaRoot := filepath.Join(home, "Library", "Application Support", "Dockiva")
+	dockivaSocket := filepath.Join(dockivaRoot, "run", "docker.sock")
 
 	return []darwinContainerStorageLocation{
 		{
@@ -190,11 +190,11 @@ func darwinContainerStorageLocations() ([]darwinContainerStorageLocation, error)
 			endpoint:    dockerEndpoint,
 		},
 		{
-			id:          "devstack-native",
-			name:        "DevStack Native data",
-			description: "DevStack's Linux guest, container images, volumes, and runtime state.",
-			path:        filepath.Join(devstackRoot, "guest"),
-			endpoint:    "unix://" + devstackSocket,
+			id:          "dockiva-native",
+			name:        "Dockiva Native data",
+			description: "Dockiva's Linux guest, container images, volumes, and runtime state.",
+			path:        filepath.Join(dockivaRoot, "guest"),
+			endpoint:    "unix://" + dockivaSocket,
 		},
 	}, nil
 }

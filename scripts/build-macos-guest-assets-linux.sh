@@ -28,13 +28,13 @@ trap 'rm -rf "$WORK"' EXIT
 
 mkdir -p "$OUT" "$WORK/rootfs"
 
-echo "Building devstack-guestd for linux/arm64..."
+echo "Building dockiva-guestd for linux/arm64..."
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
   go build \
   -trimpath \
   -ldflags="-s -w" \
-  -o "$WORK/devstack-guestd" \
-  ./cmd/devstack-guestd
+  -o "$WORK/dockiva-guestd" \
+  ./cmd/dockiva-guestd
 
 echo "Downloading Alpine minirootfs $ALPINE_VERSION..."
 ALPINE_ARCHIVE="alpine-minirootfs-${ALPINE_VERSION}-aarch64.tar.gz"
@@ -97,12 +97,12 @@ curl -fL \
 tar -xzf "$WORK/cni.tgz" -C "$WORK/rootfs/opt/cni/bin"
 
 install -m 0755 \
-  "$WORK/devstack-guestd" \
-  "$WORK/rootfs/usr/local/bin/devstack-guestd"
+  "$WORK/dockiva-guestd" \
+  "$WORK/rootfs/usr/local/bin/dockiva-guestd"
 
 install -m 0755 \
-  native/macos/devstack-init \
-  "$WORK/rootfs/sbin/devstack-init"
+  native/macos/dockiva-init \
+  "$WORK/rootfs/sbin/dockiva-init"
 
 mkdir -p \
   "$WORK/rootfs/proc" \
@@ -117,13 +117,13 @@ echo "Creating sparse ext4 rootfs..."
 ROOTFS="$OUT/rootfs.ext4"
 
 rm -f "$ROOTFS"
-truncate -s "${DEVSTACK_GUEST_DISK_SIZE:-2G}" "$ROOTFS"
+truncate -s "${DOCKIVA_GUEST_DISK_SIZE:-2G}" "$ROOTFS"
 
 mke2fs \
   -q \
   -t ext4 \
   -F \
-  -L devstack-root \
+  -L dockiva-root \
   -d "$WORK/rootfs" \
   "$ROOTFS"
 
@@ -163,7 +163,7 @@ cp \
 chmod 0644 "$OUT/vmlinux" "$ROOTFS"
 
 cat >"$OUT/manifest.txt" <<EOF
-DevStack macOS guest assets
+Dockiva macOS guest assets
 
 Alpine:     $ALPINE_VERSION
 containerd: $CONTAINERD_VERSION

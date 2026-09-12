@@ -1,4 +1,4 @@
-# DevStack — Milestone 9: Native-per-platform engine architecture
+# Dockiva — Milestone 9: Native-per-platform engine architecture
 
 This milestone is an architectural refactor for the lightweight goal:
 
@@ -63,7 +63,7 @@ It gives us a clean path toward:
 ```text
 Linux   → direct containerd
 macOS   → Apple Virtualization.framework + minimal guest
-Windows → DevStack-owned minimal WSL2 rootfs
+Windows → Dockiva-owned minimal WSL2 rootfs
 ```
 
 without maintaining three complete UI/application implementations.
@@ -104,22 +104,22 @@ Milestone 9 is cumulative from Milestone 8:
 ## Apply
 
 ```bash
-chmod +x devstack-milestone9/apply.sh
+chmod +x dockiva-milestone9/apply.sh
 
-./devstack-milestone9/apply.sh \
-  /home/darith/mbanq/devstack/devstack
+./dockiva-milestone9/apply.sh \
+  /home/darith/mbanq/dockiva/dockiva
 ```
 
 Then on your Linux machine:
 
 ```bash
-cd /home/darith/mbanq/devstack/devstack
+cd /home/darith/mbanq/dockiva/dockiva
 
 go mod tidy
 
 wails3 build -tags gtk3
 
-./bin/devstack
+./bin/dockiva
 ```
 
 ## Important upgrade behavior

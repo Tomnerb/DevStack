@@ -45,7 +45,7 @@ struct Arguments {
         let defaultState = home
             .appendingPathComponent("Library")
             .appendingPathComponent("Application Support")
-            .appendingPathComponent("DevStack")
+            .appendingPathComponent("Dockiva")
             .appendingPathComponent("run")
             .path
 
@@ -73,9 +73,9 @@ enum VMMError: Error, CustomStringConvertible {
         case .usage:
             return """
             usage:
-              devstack-vmm serve --kernel PATH --disk PATH --state-dir PATH [--cpu 4] [--memory-mib 2048] [--guest-port 10250]
-              devstack-vmm status --state-dir PATH
-              devstack-vmm stop --state-dir PATH
+              dockiva-vmm serve --kernel PATH --disk PATH --state-dir PATH [--cpu 4] [--memory-mib 2048] [--guest-port 10250]
+              dockiva-vmm status --state-dir PATH
+              dockiva-vmm stop --state-dir PATH
             """
         case .missing(let value):
             return "missing: \(value)"
@@ -98,7 +98,7 @@ final class VMStopDelegate: NSObject, VZVirtualMachineDelegate {
         _ virtualMachine: VZVirtualMachine,
         didStopWithError error: any Error
     ) {
-        fputs("devstack-vmm: VM stopped with error: \(error)\n", stderr)
+        fputs("dockiva-vmm: VM stopped with error: \(error)\n", stderr)
         onStop?()
     }
 }
@@ -311,7 +311,7 @@ final class UnixProxyServer {
 
                     case .failure(let error):
                         fputs(
-                            "devstack-vmm: vsock connect failed: \(error)\n",
+                            "dockiva-vmm: vsock connect failed: \(error)\n",
                             stderr
                         )
                         Darwin.close(clientFD)
@@ -381,7 +381,7 @@ final class VMRuntime {
 
         let bootLoader = VZLinuxBootLoader(kernelURL: kernelURL)
         bootLoader.commandLine =
-            "console=hvc0 root=/dev/vda rw init=/sbin/devstack-init"
+            "console=hvc0 root=/dev/vda rw init=/sbin/dockiva-init"
         configuration.bootLoader = bootLoader
 
         let diskAttachment = try VZDiskImageStorageDeviceAttachment(
@@ -421,7 +421,7 @@ final class VMRuntime {
                 directory: sharedDirectory
             )
             let fileSystem = VZVirtioFileSystemDeviceConfiguration(
-                tag: "devstack"
+                tag: "dockiva"
             )
             fileSystem.share = share
             configuration.directorySharingDevices = [fileSystem]
@@ -608,12 +608,12 @@ func printStatus(stateDir: String) {
 
 func stopDaemon(stateDir: String) throws {
     guard let pid = readPID(stateDir: stateDir) else {
-        print("DevStack native VM is not running.")
+        print("Dockiva native VM is not running.")
         return
     }
 
     guard processIsAlive(pid) else {
-        print("DevStack native VM is not running.")
+        print("Dockiva native VM is not running.")
         return
     }
 
@@ -625,7 +625,7 @@ func stopDaemon(stateDir: String) throws {
 
     for _ in 0..<50 {
         if !processIsAlive(pid) {
-            print("DevStack native VM stopped.")
+            print("Dockiva native VM stopped.")
             return
         }
 
@@ -684,7 +684,7 @@ func serve(args: Arguments) async throws {
 }
 
 @main
-struct DevStackVMMMain {
+struct DockivaVMMMain {
     static func main() async {
         do {
             let args = try Arguments.parse()
@@ -703,7 +703,7 @@ struct DevStackVMMMain {
                 throw VMMError.usage
             }
         } catch {
-            fputs("devstack-vmm: \(error)\n", stderr)
+            fputs("dockiva-vmm: \(error)\n", stderr)
             exit(1)
         }
     }

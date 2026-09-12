@@ -18,7 +18,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-const dockerChangedEvent = "devstack:docker-event"
+const dockerChangedEvent = "dockiva:docker-event"
 
 type PlatformInfo struct {
 	OS            string `json:"os"`
@@ -57,7 +57,7 @@ func newDockerAPIClient() (*client.Client, error) {
 
 	opts := []client.Opt{
 		client.FromEnv,
-		client.WithUserAgent("devstack/0.7.0"),
+		client.WithUserAgent("dockiva/0.7.0"),
 	}
 
 	// Explicit DOCKER_HOST always wins. If it is not set, use the active
@@ -327,7 +327,7 @@ func reachableDockerEndpoint(
 
 	probe, err := client.New(
 		client.WithHost(endpoint),
-		client.WithUserAgent("devstack/0.16.1"),
+		client.WithUserAgent("dockiva/0.16.1"),
 	)
 	if err != nil {
 		return false
@@ -531,7 +531,7 @@ func (s *DockerService) GetPlatformInfo() PlatformInfo {
 }
 
 // ServiceStartup starts a lightweight Docker event watcher. Failure to start
-// the watcher is non-fatal: DevStack can still operate through normal refreshes.
+// the watcher is non-fatal: Dockiva can still operate through normal refreshes.
 func (s *DockerService) ServiceStartup(
 	ctx context.Context,
 	options application.ServiceOptions,
@@ -683,7 +683,7 @@ func (s *DockerService) ImportComposePath(inputPath string) (ComposeImportResult
 
 	project := composeProjectName(filepath.Base(workingDir))
 	if project == "" {
-		project = "devstack"
+		project = "dockiva"
 	}
 
 	args := []string{

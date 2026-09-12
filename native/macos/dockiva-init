@@ -12,10 +12,10 @@ mount -t tmpfs tmpfs /run 2>/dev/null || true
 mount -t cgroup2 none /sys/fs/cgroup 2>/dev/null || true
 mkdir -p /run/containerd /run/lock
 
-hostname devstack-macos
+hostname dockiva-macos
 
-mkdir -p /mnt/devstack/host
-mount -t virtiofs devstack /mnt/devstack/host 2>/dev/null || true
+mkdir -p /mnt/dockiva/host
+mount -t virtiofs dockiva /mnt/dockiva/host 2>/dev/null || true
 
 ip link set lo up 2>/dev/null || true
 
@@ -44,7 +44,7 @@ state = "/run/containerd"
   default_runtime_name = "runc"
 EOF
 
-echo "devstack-init: starting containerd"
+echo "dockiva-init: starting containerd"
 
 /usr/local/bin/containerd \
   --config /etc/containerd/config.toml \
@@ -58,7 +58,7 @@ for _ in $(seq 1 100); do
 done
 
 if [ ! -S /run/containerd/containerd.sock ]; then
-  echo "devstack-init: containerd socket did not appear"
+  echo "dockiva-init: containerd socket did not appear"
   cat /var/log/containerd.log 2>/dev/null || true
   exec sh
 fi
@@ -74,7 +74,7 @@ cat >/etc/docker/daemon.json <<'EOF'
 }
 EOF
 
-echo "devstack-init: starting Docker Engine"
+echo "dockiva-init: starting Docker Engine"
 /usr/local/bin/dockerd --config-file /etc/docker/daemon.json >/var/log/dockerd.log 2>&1 &
 
 for _ in $(seq 1 100); do
@@ -83,24 +83,24 @@ for _ in $(seq 1 100); do
 done
 
 if [ ! -S /run/docker.sock ]; then
-  echo "devstack-init: Docker socket did not appear"
+  echo "dockiva-init: Docker socket did not appear"
   cat /var/log/dockerd.log 2>/dev/null || true
   exec sh
 fi
 
-echo "devstack-init: starting vsock proxy"
+echo "dockiva-init: starting vsock proxy"
 
-/usr/local/bin/devstack-guestd \
+/usr/local/bin/dockiva-guestd \
   --port 10250 \
   --target /run/containerd/containerd.sock \
-  >/var/log/devstack-guestd.log 2>&1 &
+  >/var/log/dockiva-guestd.log 2>&1 &
 
-/usr/local/bin/devstack-guestd \
+/usr/local/bin/dockiva-guestd \
   --port 10251 \
   --target /run/docker.sock \
-  >/var/log/devstack-dockerd-proxy.log 2>&1 &
+  >/var/log/dockiva-dockerd-proxy.log 2>&1 &
 
-echo "devstack-init: ready"
+echo "dockiva-init: ready"
 
 while true; do
   sleep 3600

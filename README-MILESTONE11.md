@@ -1,4 +1,4 @@
-# DevStack — Milestone 11: Direct containerd on Linux
+# Dockiva — Milestone 11: Direct containerd on Linux
 
 Milestone 11 makes the Linux containerd adapter genuinely usable.
 
@@ -22,11 +22,11 @@ Still the full-feature runtime:
 
 ### containerd (Linux, experimental)
 
-Now selectable when DevStack can access a containerd socket.
+Now selectable when Dockiva can access a containerd socket.
 
 Implemented:
 
-- dedicated `devstack` namespace
+- dedicated `dockiva` namespace
 - direct containerd v2 client
 - image pull + unpack
 - snapshotter selection
@@ -63,7 +63,7 @@ Milestone 11 targets the current v2 client API.
 
 ## Rootless first
 
-DevStack prefers an accessible rootless containerd socket when present.
+Dockiva prefers an accessible rootless containerd socket when present.
 
 It also checks standard rootful sockets:
 
@@ -72,7 +72,7 @@ It also checks standard rootful sockets:
 /var/run/containerd/containerd.sock
 ```
 
-DevStack should not be run as root just to manage containers.
+Dockiva should not be run as root just to manage containers.
 
 If a system socket exists but your normal user cannot connect, containerd will
 appear unavailable in the Engine screen.
@@ -80,20 +80,20 @@ appear unavailable in the Engine screen.
 ## Apply
 
 ```bash
-chmod +x devstack-milestone11/apply.sh
+chmod +x dockiva-milestone11/apply.sh
 
-./devstack-milestone11/apply.sh \
-  /home/darith/mbanq/devstack/devstack
+./dockiva-milestone11/apply.sh \
+  /home/darith/mbanq/dockiva/dockiva
 ```
 
 Then:
 
 ```bash
-cd /home/darith/mbanq/devstack/devstack
+cd /home/darith/mbanq/dockiva/dockiva
 
 go mod tidy
 wails3 build -tags gtk3
-./bin/devstack
+./bin/dockiva
 ```
 
 ## Try containerd
@@ -129,10 +129,10 @@ Then Start / Stop / Restart / Delete use containerd directly.
 
 ## Namespace isolation
 
-DevStack uses only:
+Dockiva uses only:
 
 ```text
-containerd namespace: devstack
+containerd namespace: dockiva
 ```
 
 It will not list or manage Kubernetes `k8s.io` containers or Docker's internal
@@ -140,9 +140,9 @@ containerd namespaces.
 
 ## Snapshotter
 
-DevStack tries:
+Dockiva tries:
 
-1. `DEVSTACK_CONTAINERD_SNAPSHOTTER`, when set
+1. `DOCKIVA_CONTAINERD_SNAPSHOTTER`, when set
 2. `overlayfs`
 3. `native`
 
@@ -167,14 +167,14 @@ The helper shows:
 - containerd sockets
 - `ctr`
 - namespaces when permission allows
-- DevStack namespace
+- Dockiva namespace
 
 ## Next milestone
 
 Milestone 12 should add CNI networking and port publishing:
 
 ```text
-DevStack containerd
+Dockiva containerd
    ↓
 CNI bridge
    ├── container IP
