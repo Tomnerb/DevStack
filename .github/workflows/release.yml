@@ -100,10 +100,18 @@ jobs:
           retention-days: 2
 
   macos:
-    name: macOS arm64 release
+    name: macOS ${{ matrix.arch }} release
     needs: macos-guest
     runs-on: macos-14
     environment: release-macos
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            native: true
+          - arch: amd64
+            native: false
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -123,6 +131,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: matrix.native
         with:
           name: macos-guest-arm64
           path: macos-guest
@@ -185,15 +194,19 @@ jobs:
           MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
         run: |
           set -euo pipefail
+          build_args=("${{ matrix.arch }}")
+          if [[ "${{ matrix.native }}" == "true" ]]; then
+            build_args+=(--guest-assets ./macos-guest)
+          else
+            build_args+=(--external-only)
+          fi
           if [[ "${{ steps.macos_signing.outputs.enabled }}" == "true" ]]; then
-            ./scripts/build-macos.sh arm64 \
-              --guest-assets ./macos-guest \
+            ./scripts/build-macos.sh "${build_args[@]}" \
               --release \
               --sign-identity "$MACOS_SIGN_IDENTITY" \
               --notary-profile devstack-ci
           else
-            ./scripts/build-macos.sh arm64 \
-              --guest-assets ./macos-guest \
+            ./scripts/build-macos.sh "${build_args[@]}" \
               --unsigned-release
           fi
 
@@ -202,16 +215,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          codesign --verify --deep --strict --verbose=2 dist/macos-arm64/DevStack.app
-          xcrun stapler validate dist/macos-arm64/DevStack.app
-          xcrun stapler validate "dist/macos-arm64/DevStack-$(cat VERSION)-macOS-arm64.dmg"
+          codesign --verify --deep --strict --verbose=2 "dist/macos-${{ matrix.arch }}/DevStack.app"
+          xcrun stapler validate "dist/macos-${{ matrix.arch }}/DevStack.app"
+          xcrun stapler validate "dist/macos-${{ matrix.arch }}/DevStack-$(cat VERSION)-macOS-${{ matrix.arch }}.dmg"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-macos-arm64
+          name: release-macos-${{ matrix.arch }}
           path: |
-            dist/macos-arm64/DevStack-*-macOS-arm64.dmg
-            dist/macos-arm64/DevStack-*-darwin-arm64.zip
+            dist/macos-${{ matrix.arch }}/DevStack-*-macOS-${{ matrix.arch }}.dmg
+            dist/macos-${{ matrix.arch }}/DevStack-*-darwin-${{ matrix.arch }}.zip
           if-no-files-found: error
 
       - name: Remove temporary signing keychain
@@ -341,9 +354,17 @@ jobs:
         run: Remove-Item "$env:RUNNER_TEMP\devstack-signing.pfx" -Force -ErrorAction SilentlyContinue
 
   linux:
-    name: Linux amd64 release
+    name: Linux ${{ matrix.arch }} release
     needs: validate
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -375,15 +396,15 @@ jobs:
         run: |
           set -euo pipefail
           version="$(tr -d '[:space:]' < VERSION)"
-          ./scripts/build-linux.sh amd64
+          ./scripts/build-linux.sh "${{ matrix.arch }}"
           mkdir -p dist/release/stage
-          install -m 0755 dist/linux-amd64/devstack dist/release/stage/devstack
-          tar -C dist/release/stage -czf "dist/release/DevStack-$version-linux-amd64.tar.gz" devstack
+          install -m 0755 "dist/linux-${{ matrix.arch }}/devstack" dist/release/stage/devstack
+          tar -C dist/release/stage -czf "dist/release/DevStack-$version-linux-${{ matrix.arch }}.tar.gz" devstack
           rm -rf dist/release/stage
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-linux-amd64
+          name: release-linux-${{ matrix.arch }}
           path: dist/release/
           if-no-files-found: error
 
@@ -415,7 +436,7 @@ jobs:
             | sort -z \
             | xargs -0 sha256sum \
             | sed 's#  \./#  #' > SHA256SUMS
-          test "$(wc -l < SHA256SUMS)" -eq 3
+          test "$(wc -l < SHA256SUMS)" -eq 5
           sha256sum --check SHA256SUMS
 
       - name: Create or update GitHub Release

@@ -204,7 +204,8 @@ frontend and Go tests, builds the macOS native guest, produces signed-or-unsigne
 macOS and Windows releases, and the Linux updater archive,
 creates one combined `SHA256SUMS`, and publishes the GitHub Release. It can also be rerun manually
 from **Actions → Release → Run workflow** with an existing tag.
-The current automated targets are macOS arm64, Windows amd64, and Linux amd64.
+The current automated targets are macOS arm64 (DevStack Native), macOS amd64
+(external Docker engine), Windows amd64, and Linux amd64/arm64.
 
 Configure these optional GitHub Actions environment secrets to sign releases:
 
@@ -259,10 +260,12 @@ system package manager.
 
 ### macOS
 
-An external-Docker-only build needs only macOS:
+An external-Docker-only build needs only macOS. Use `arm64` for Apple silicon
+or `amd64` for Intel:
 
 ```bash
 ./scripts/build-macos.sh arm64 --external-only
+./scripts/build-macos.sh amd64 --external-only
 ```
 
 The native engine additionally needs `vmlinux` and `rootfs.ext4`. Generate them once on Linux:
@@ -285,10 +288,11 @@ Output:
 dist/macos-arm64/DevStack.app
 ```
 
-Use `amd64` instead of `arm64` when building for an Intel Mac. The `--install`
-option copies the completed application to `~/Applications/DevStack.app`; without
-it, the application remains in `dist/` and can be copied to `Applications`
-manually.
+The bundled native engine currently supports Apple silicon only. Intel Mac
+builds use an external Docker-compatible engine, such as Docker Desktop. The
+`--install` option copies the completed application to
+`~/Applications/DevStack.app`; without it, the application remains in `dist/`
+and can be copied to `Applications` manually.
 
 #### Create a macOS DMG installer
 
@@ -374,12 +378,14 @@ instead of their corresponding command-line options.
 
 ```bash
 ./scripts/build-linux.sh amd64
+./scripts/build-linux.sh arm64
 ```
 
 Output:
 
 ```text
 dist/linux-amd64/devstack
+dist/linux-arm64/devstack
 ```
 
 Install direct-containerd networking once when using the native Linux runtime:
