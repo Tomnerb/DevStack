@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -523,13 +524,56 @@ func dockivaVMMStateDir() (string, error) {
 		return "", err
 	}
 
-	return filepath.Join(
+	current := filepath.Join(
 		home,
 		"Library",
 		"Application Support",
 		"Dockiva",
 		"run",
-	), nil
+	)
+	legacy := filepath.Join(
+		home,
+		"Library",
+		"Application Support",
+		"DevStack",
+		"run",
+	)
+
+	// A rename update can leave the DevStack VM running. Continue using that
+	// state directory so Dockiva reconnects to the existing VM instead of
+	// attaching its already-mounted guest disk to a second VM.
+	if darwinVMMStateIsRunning(current) {
+		return current, nil
+	}
+	if darwinVMMStateIsRunning(legacy) {
+		return legacy, nil
+	}
+
+	return current, nil
+}
+
+func darwinVMMStateIsRunning(stateDir string) bool {
+	pidBytes, err := os.ReadFile(filepath.Join(stateDir, "vmm.pid"))
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(pidBytes)))
+	if err != nil || pid <= 0 {
+		return false
+	}
+
+	var status struct {
+		Running bool `json:"running"`
+		PID     int  `json:"pid"`
+	}
+	statusBytes, err := os.ReadFile(filepath.Join(stateDir, "status.json"))
+	if err != nil || json.Unmarshal(statusBytes, &status) != nil ||
+		!status.Running || status.PID != pid {
+		return false
+	}
+
+	err = syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 func defaultDarwinVMCPUCount() int {

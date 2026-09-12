@@ -88,6 +88,37 @@ func preferredDockerEndpoint() string {
 	return ""
 }
 
+// resolveExternalDockerEndpoint repairs a saved local endpoint only when its
+// socket has disappeared and the Docker CLI now identifies a different local
+// context. A healthy saved daemon and remote endpoints are never replaced.
+func resolveExternalDockerEndpoint(endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" || !missingLocalDockerSocket(endpoint) {
+		return endpoint
+	}
+
+	preferred := strings.TrimSpace(preferredDockerEndpoint())
+	if preferred != "" && isLocalDockerHost(preferred) &&
+		!sameDockerEndpoint(endpoint, preferred) {
+		return preferred
+	}
+
+	return endpoint
+}
+
+func missingLocalDockerSocket(endpoint string) bool {
+	endpoint = strings.TrimSpace(endpoint)
+	if !strings.HasPrefix(strings.ToLower(endpoint), "unix://") {
+		return false
+	}
+	path := strings.TrimPrefix(endpoint, "unix://")
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return errors.Is(err, os.ErrNotExist)
+}
+
 func dockerEndpointKind(
 	endpoint string,
 ) string {
@@ -294,6 +325,26 @@ func dockerEndpointCandidates() []string {
 						home,
 						".colima",
 						"default",
+						"docker.sock",
+					),
+			)
+
+			add(
+				"unix://" +
+					filepath.Join(
+						home,
+						".docker",
+						"desktop",
+						"docker.sock",
+					),
+			)
+
+			add(
+				"unix://" +
+					filepath.Join(
+						home,
+						".orbstack",
+						"run",
 						"docker.sock",
 					),
 			)

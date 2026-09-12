@@ -126,11 +126,16 @@ func (s *DockerService) SelectEngineBackend(
 	}
 
 	if backend == "external" {
+		externalEndpoint = resolveExternalDockerEndpoint(externalEndpoint)
 		if strings.TrimSpace(externalEndpoint) != "" {
 			if err := s.ConfigureDockerEndpoint(externalEndpoint); err != nil {
 				return "", err
 			}
 		}
+		// Connect immediately when the endpoint is already available. An
+		// offline external engine remains selectable so the UI can offer an
+		// explicit reconnect/start action without launching it during startup.
+		_ = s.ReconnectExternalDocker()
 		if err := s.SelectContainerRuntime("docker"); err != nil {
 			return "", err
 		}
@@ -354,11 +359,21 @@ func (s *DockerService) RecoverDockerConnection() (
 	EngineActionResult,
 	error,
 ) {
-	endpoint := s.ConfiguredDockerEndpoint()
-
 	err := s.ReconnectConfiguredDocker()
+	if err != nil {
+		started, startErr := startExternalDockerOnRequest(
+			s.ConfiguredDockerEndpoint(),
+		)
+		if started {
+			err = startErr
+			if err == nil {
+				err = s.ReconnectConfiguredDocker()
+			}
+		}
+	}
 
 	status := s.externalEngineStatus()
+	endpoint := s.ConfiguredDockerEndpoint()
 	status.Endpoint = endpoint
 
 	if err == nil {

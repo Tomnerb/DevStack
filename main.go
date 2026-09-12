@@ -57,10 +57,23 @@ func main() {
 	)
 	if err != nil {
 		log.Printf("could not restore engine backend %q: %v", settings.EngineBackend, err)
-	} else if settings.RuntimeProvider != provider {
-		settings.RuntimeProvider = provider
-		if err := appService.UpdateSettings(settings); err != nil {
-			log.Printf("could not persist active runtime %q: %v", provider, err)
+	} else {
+		settingsChanged := false
+		if settings.RuntimeProvider != provider {
+			settings.RuntimeProvider = provider
+			settingsChanged = true
+		}
+		if normalizeEngineBackend(settings.EngineBackend) == "external" {
+			resolvedEndpoint := dockerService.ConfiguredDockerEndpoint()
+			if resolvedEndpoint != "" && settings.DockerEndpoint != resolvedEndpoint {
+				settings.DockerEndpoint = resolvedEndpoint
+				settingsChanged = true
+			}
+		}
+		if settingsChanged {
+			if err := appService.UpdateSettings(settings); err != nil {
+				log.Printf("could not persist restored engine settings: %v", err)
+			}
 		}
 	}
 

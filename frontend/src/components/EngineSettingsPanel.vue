@@ -215,6 +215,12 @@ async function chooseBackend(value: string) {
     ) as string
     settings.value.engineBackend = value
     settings.value.runtimeProvider = provider
+    if (value === 'external') {
+      const identity = await Call.ByName(
+        'main.DockerService.DockerEndpointIdentity',
+      ) as { endpoint: string }
+      settings.value.dockerEndpoint = identity.endpoint || settings.value.dockerEndpoint
+    }
     await save()
     await refresh()
     emit('engineChanged')
@@ -276,6 +282,13 @@ async function reconnectDocker() {
 
     status.value = result.status
     output.value = result.output || ''
+    const identity = await Call.ByName(
+      'main.DockerService.DockerEndpointIdentity',
+    ) as { endpoint: string }
+    if (identity.endpoint && identity.endpoint !== settings.value.dockerEndpoint) {
+      settings.value.dockerEndpoint = identity.endpoint
+      await save()
+    }
     await refresh()
     emit('engineChanged')
   } catch (err) {
@@ -418,7 +431,7 @@ onBeforeUnmount(() => {
             Apply endpoint
           </button>
         </div>
-        <p class="mt-2 text-xs text-zinc-600">This endpoint is kept as a separate engine identity; reconnect never searches for a substitute daemon.</p>
+        <p class="mt-2 text-xs text-zinc-600">Dockiva keeps this engine separate from Native. If a saved local socket no longer exists, it uses the active Docker CLI context.</p>
       </div>
 
       <div v-if="settings.engineBackend === 'wsl2' && status" class="config-box mt-5 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
@@ -462,7 +475,7 @@ onBeforeUnmount(() => {
               :disabled="!!busy"
               @click="reconnectDocker"
             >
-              {{ busy === 'reconnect' ? 'Reconnecting…' : 'Reconnect' }}
+              {{ busy === 'reconnect' ? 'Connecting…' : dockerIdentity?.kind === 'docker-desktop' ? 'Start Docker Desktop' : 'Reconnect' }}
             </button>
             <button
               v-if="!status.running && settings.engineBackend !== 'external'"
@@ -616,7 +629,7 @@ onBeforeUnmount(() => {
           <div>
             <div class="font-medium">Auto reconnect engine</div>
             <div class="text-xs text-zinc-500">
-              For External Docker, reconnect only to the saved endpoint. Native backends never fall through to another Docker daemon.
+              External Docker keeps its saved endpoint unless that local socket was removed; Native never falls through to another daemon.
             </div>
           </div>
           <input

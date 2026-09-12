@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -54,5 +55,55 @@ func TestStageBundledGuestAssets(t *testing.T) {
 	}
 	if string(data) != "persistent" {
 		t.Fatalf("existing guest disk was overwritten: %q", data)
+	}
+}
+
+func TestDockivaVMMStateDirReusesRunningLegacyVM(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	legacy := filepath.Join(home, "Library", "Application Support", "DevStack", "run")
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pid := os.Getpid()
+	if err := os.WriteFile(filepath.Join(legacy, "vmm.pid"), []byte(fmt.Sprint(pid)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	status := fmt.Sprintf(`{"running":true,"pid":%d}`, pid)
+	if err := os.WriteFile(filepath.Join(legacy, "status.json"), []byte(status), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := dockivaVMMStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != legacy {
+		t.Fatalf("state dir = %q, want running legacy state %q", got, legacy)
+	}
+}
+
+func TestDockivaVMMStateDirIgnoresStaleLegacyVM(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	legacy := filepath.Join(home, "Library", "Application Support", "DevStack", "run")
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "vmm.pid"), []byte("99999999"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "status.json"), []byte(`{"running":true,"pid":99999999}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := dockivaVMMStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(home, "Library", "Application Support", "Dockiva", "run")
+	if got != want {
+		t.Fatalf("state dir = %q, want current state %q", got, want)
 	}
 }
