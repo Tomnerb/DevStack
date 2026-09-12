@@ -130,11 +130,26 @@ mke2fs \
 echo "Fetching Apple-style optimized Kata kernel..."
 KATA_VERSION="${KATA_VERSION:-3.28.0}"
 KATA_URL="${KATA_URL:-https://github.com/kata-containers/kata-containers/releases/download/${KATA_VERSION}/kata-static-${KATA_VERSION}-arm64.tar.zst}"
-KATA_BINARY="${KATA_BINARY:-opt/kata/share/kata-containers/vmlinux-6.18.15-186}"
+KATA_BINARY="${KATA_BINARY:-}"
 
 curl -fL "$KATA_URL" -o "$WORK/kata.tar.zst"
 
 mkdir -p "$WORK/kata"
+
+if [[ -z "$KATA_BINARY" ]]; then
+  mapfile -t KATA_KERNELS < <(
+    tar --use-compress-program=unzstd -tf "$WORK/kata.tar.zst" \
+      | sed 's#^\./##' \
+      | sed -n '\#^opt/kata/share/kata-containers/vmlinux-[^/]*$#p'
+  )
+  if [[ "${#KATA_KERNELS[@]}" -eq 0 ]]; then
+    echo "The Kata archive does not contain an arm64 vmlinux kernel." >&2
+    exit 1
+  fi
+  KATA_BINARY="$(printf '%s\n' "${KATA_KERNELS[@]}" | sort -V | tail -n 1)"
+fi
+
+echo "Using Kata kernel: $KATA_BINARY"
 
 tar \
   --use-compress-program=unzstd \
