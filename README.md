@@ -177,7 +177,7 @@ the app, verifies it against the release's `SHA256SUMS`, stages the replacement,
 quits DevStack, atomically replaces the installed app, and launches the new
 version. The original installer remains available as a manual fallback.
 
-For a release, update `VERSION`, commit it, build the signed installers, then
+For a release, update `VERSION`, commit it, build the release installers, then
 publish a GitHub release with the matching tag, such as `v0.2.0`. A macOS
 release build produces all three files needed for distribution:
 
@@ -198,9 +198,9 @@ signing again.
 
 The [release workflow](.github/workflows/release.yml) runs when a stable
 `vX.Y.Z` tag is pushed. It verifies that the tag matches `VERSION`, runs the
-frontend and Go tests, builds the macOS native guest, produces signed macOS and
-Windows releases plus the Linux updater archive, creates one combined
-`SHA256SUMS`, and publishes the GitHub Release. It can also be rerun manually
+frontend and Go tests, builds the macOS native guest, produces a signed macOS
+release, a signed-or-unsigned Windows release, and the Linux updater archive,
+creates one combined `SHA256SUMS`, and publishes the GitHub Release. It can also be rerun manually
 from **Actions → Release → Run workflow** with an existing tag.
 The current automated targets are macOS arm64, Windows amd64, and Linux amd64.
 
@@ -214,8 +214,8 @@ Configure these GitHub Actions environment secrets before publishing:
 | `APPLE_ID` | Apple Account used for notarization |
 | `APPLE_TEAM_ID` | Apple Developer team ID |
 | `APPLE_APP_PASSWORD` | App-specific password used by `notarytool` |
-| `WINDOWS_CERTIFICATE` | Base64-encoded Authenticode `.pfx` |
-| `WINDOWS_CERTIFICATE_PASSWORD` | Password for the `.pfx` |
+| `WINDOWS_CERTIFICATE` | Optional: base64-encoded Authenticode `.pfx` |
+| `WINDOWS_CERTIFICATE_PASSWORD` | Optional: password for the `.pfx` |
 
 Create GitHub environments named `release-macos`, `release-windows`, and
 `release-publish`. Store platform signing secrets in their matching environment
@@ -237,9 +237,15 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
+The two Windows secrets are optional, but they must either both be configured
+or both be absent. Without them, the workflow publishes an unsigned executable
+and installer; in-app updates still require and verify `SHA256SUMS`, but Windows
+shows an unknown publisher and may display SmartScreen warnings. Add the two
+secrets later to enable Authenticode signing without changing the release flow.
+
 The release is published only after every platform job succeeds. Windows uses
 a per-user installer under `%LOCALAPPDATA%` so the in-app updater can replace
-the signed executable without an administrator prompt. Linux self-update works
+the packaged executable without an administrator prompt. Linux self-update works
 when the extracted `devstack` binary is installed in a user-writable location,
 such as `~/.local/bin`; system package upgrades should continue through the
 system package manager.
@@ -420,8 +426,10 @@ The intended release packaging has two explicit choices:
 The native installer should detect WSL2, explain any required Windows feature or
 restart, preserve the DevStack distribution and container data during normal app
 upgrades, and never unregister the distribution during uninstall without a
-separate explicit confirmation. Public releases should Authenticode-sign both
-the application executable and installer.
+separate explicit confirmation. When a supported signing service is available,
+public releases should Authenticode-sign both the application executable and
+installer. Unsigned releases remain checksummed but Windows identifies them as
+coming from an unknown publisher and may show SmartScreen warnings.
 
 Until that integrated native installer is implemented and validated on Windows,
 use the NSIS application installer and the separate WSL provisioning command
