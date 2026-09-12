@@ -1,21 +1,17 @@
 package main
 
 import (
+	"context"
 	_ "embed"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/updater"
 )
-
-const latestReleaseAPI = "https://api.github.com/repos/Tomnerb/DevStack/releases/latest"
 
 //go:embed VERSION
 var sourceVersion string
@@ -45,14 +41,8 @@ type UpdateInfo struct {
 	PublishedAt    string `json:"publishedAt"`
 	Notes          string `json:"notes"`
 	Message        string `json:"message"`
-}
-
-type githubLatestRelease struct {
-	TagName     string `json:"tag_name"`
-	Name        string `json:"name"`
-	HTMLURL     string `json:"html_url"`
-	Body        string `json:"body"`
-	PublishedAt string `json:"published_at"`
+	ArtifactName   string `json:"artifactName"`
+	ArtifactSize   int64  `json:"artifactSize"`
 }
 
 func currentVersion() string {
@@ -77,64 +67,68 @@ func (s *AppService) GetVersionInfo() VersionInfo {
 
 func (s *AppService) CheckForUpdates() (UpdateInfo, error) {
 	current := currentVersion()
-	request, err := http.NewRequest(http.MethodGet, latestReleaseAPI, nil)
-	if err != nil {
-		return UpdateInfo{}, err
+	app := application.Get()
+	if app == nil || app.Updater == nil {
+		return UpdateInfo{}, errors.New("application updater is unavailable")
 	}
-	request.Header.Set("Accept", "application/vnd.github+json")
-	request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	request.Header.Set("User-Agent", "DevStack/"+current)
 
-	client := &http.Client{Timeout: 12 * time.Second}
-	response, err := client.Do(request)
+	release, err := app.Updater.Check(context.Background())
 	if err != nil {
 		return UpdateInfo{}, fmt.Errorf("check for updates: %w", err)
 	}
-	defer response.Body.Close()
-
-	if response.StatusCode == http.StatusNotFound {
+	if release == nil {
 		return UpdateInfo{
 			CurrentVersion: current,
-			Message:        "No published DevStack releases are available yet.",
+			LatestVersion:  current,
+			Message:        "DevStack is up to date.",
 		}, nil
 	}
-	if response.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		detail := strings.TrimSpace(string(body))
-		if detail == "" {
-			detail = response.Status
-		}
-		return UpdateInfo{}, fmt.Errorf("GitHub update check failed: %s", detail)
-	}
 
-	var release githubLatestRelease
-	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&release); err != nil {
-		return UpdateInfo{}, fmt.Errorf("read GitHub release: %w", err)
-	}
+	return updateInfoFromRelease(current, release)
+}
 
-	latest := strings.TrimPrefix(strings.TrimSpace(release.TagName), "v")
+// ApplyUpdate downloads the platform-specific release, verifies its SHA-256
+// digest, stages it, and restarts DevStack through Wails' detached updater
+// helper. The running application is only replaced after it has exited.
+func (s *AppService) ApplyUpdate() error {
+	app := application.Get()
+	if app == nil || app.Updater == nil {
+		return errors.New("application updater is unavailable")
+	}
+	if err := app.Updater.DownloadAndInstall(context.Background()); err != nil {
+		return fmt.Errorf("download update: %w", err)
+	}
+	if err := app.Updater.Restart(context.Background()); err != nil {
+		return fmt.Errorf("restart into update: %w", err)
+	}
+	return nil
+}
+
+func updateInfoFromRelease(current string, release *updater.Release) (UpdateInfo, error) {
+	if release == nil {
+		return UpdateInfo{}, errors.New("release is unavailable")
+	}
+	latest := strings.TrimPrefix(strings.TrimSpace(release.Version), "v")
 	if latest == "" {
 		return UpdateInfo{}, errors.New("latest GitHub release has no version tag")
 	}
-	if err := validateReleaseURL(release.HTMLURL); err != nil {
-		return UpdateInfo{}, err
-	}
 
-	available := compareVersions(latest, current) > 0
-	message := "DevStack is up to date."
-	if available {
-		message = fmt.Sprintf("DevStack %s is available.", latest)
+	releaseURL, _ := release.Metadata["github.release.htmlURL"].(string)
+	if err := validateReleaseURL(releaseURL); err != nil {
+		return UpdateInfo{}, err
 	}
 
 	return UpdateInfo{
 		CurrentVersion: current,
 		LatestVersion:  latest,
-		Available:      available,
+		Available:      compareVersions(latest, current) > 0,
 		ReleaseName:    strings.TrimSpace(release.Name),
-		ReleaseURL:     release.HTMLURL,
-		PublishedAt:    release.PublishedAt,
-		Notes:          strings.TrimSpace(release.Body),
-		Message:        message,
+		ReleaseURL:     releaseURL,
+		PublishedAt:    release.PublishedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		Notes:          strings.TrimSpace(release.Notes),
+		Message:        fmt.Sprintf("DevStack %s is available.", latest),
+		ArtifactName:   release.Artifact.Filename,
+		ArtifactSize:   release.Artifact.Size,
 	}, nil
 }
 

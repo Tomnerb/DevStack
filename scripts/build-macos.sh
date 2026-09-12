@@ -266,6 +266,14 @@ if [[ "$RELEASE" == true ]]; then
   xcrun stapler validate "$RELEASE_DMG"
   VERSIONED_DMG="$DIST_DIR/DevStack-$APP_VERSION-macOS-$ARCH.dmg"
   cp -f "$RELEASE_DMG" "$VERSIONED_DMG"
+
+  UPDATE_ARCHIVE="$DIST_DIR/DevStack-$APP_VERSION-darwin-$ARCH.zip"
+  rm -f -- "$UPDATE_ARCHIVE"
+  ditto -c -k --keepParent "$DIST_APP" "$UPDATE_ARCHIVE"
+  (
+    cd "$DIST_DIR"
+    shasum -a 256 "$(basename "$UPDATE_ARCHIVE")" > SHA256SUMS
+  )
 fi
 
 echo
@@ -278,6 +286,8 @@ else
 fi
 if [[ "$RELEASE" == true ]]; then
   echo "Release DMG: $VERSIONED_DMG"
+  echo "Automatic update: $UPDATE_ARCHIVE"
+  echo "Update checksum: $DIST_DIR/SHA256SUMS"
   echo "Developer ID signing, notarization, and stapling completed."
 else
   echo "This development bundle is ad-hoc signed. Use --release for public distribution."

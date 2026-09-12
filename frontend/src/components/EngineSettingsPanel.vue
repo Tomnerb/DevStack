@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { Call } from '@wailsio/runtime'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Call, Events } from '@wailsio/runtime'
 
 interface AppSettings {
   settingsVersion: number
@@ -94,6 +94,14 @@ interface UpdateInfo {
   publishedAt: string
   notes: string
   message: string
+  artifactName: string
+  artifactSize: number
+}
+
+interface UpdateProgress {
+  written: number
+  total: number
+  rate: number
 }
 
 const props = defineProps<{ platform: PlatformInfo | null }>()
@@ -126,6 +134,22 @@ const versionInfo = ref<VersionInfo | null>(null)
 const updateInfo = ref<UpdateInfo | null>(null)
 const updateBusy = ref(false)
 const updateError = ref('')
+const updateStage = ref('')
+const updateProgress = ref<UpdateProgress | null>(null)
+const updateUnsubscribers: Array<() => void> = []
+
+const updateProgressPercent = computed(() => {
+  const progress = updateProgress.value
+  if (!progress?.total) return 0
+  return Math.min(100, Math.round((progress.written / progress.total) * 100))
+})
+
+function formatUpdateBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1)
+  return `${(value / (1024 ** index)).toFixed(index === 0 ? 0 : 1)} ${units[index]}`
+}
 
 const backendOptions = computed(() => {
   const native = props.platform?.os === 'darwin'
@@ -292,6 +316,40 @@ async function checkForUpdates() {
   }
 }
 
+async function applyUpdate() {
+  if (updateBusy.value || !updateInfo.value?.available) return
+  updateBusy.value = true
+  updateError.value = ''
+  updateStage.value = 'Preparing download…'
+  updateProgress.value = null
+  try {
+    await Call.ByName('main.AppService.ApplyUpdate')
+  } catch (err) {
+    updateError.value = err instanceof Error ? err.message : String(err)
+    updateStage.value = ''
+    updateBusy.value = false
+  }
+}
+
+function setupUpdateListeners() {
+  const listen = (name: string, handler: (data: any) => void) => {
+    updateUnsubscribers.push(Events.On(name, (payload: any) => handler(payload?.data ?? payload)))
+  }
+  listen('wails:updater:download-started', () => { updateStage.value = 'Downloading update…' })
+  listen('wails:updater:download-progress', (data: UpdateProgress) => {
+    updateStage.value = 'Downloading update…'
+    updateProgress.value = data
+  })
+  listen('wails:updater:verifying', () => { updateStage.value = 'Verifying download…' })
+  listen('wails:updater:installing', () => { updateStage.value = 'Preparing installation…' })
+  listen('wails:updater:update-ready', () => { updateStage.value = 'Restarting to install…' })
+  listen('wails:updater:error', (data: { message?: string }) => {
+    updateError.value = data?.message || 'The update could not be installed.'
+    updateStage.value = ''
+    updateBusy.value = false
+  })
+}
+
 async function openUpdatePage() {
   if (!updateInfo.value?.releaseUrl) return
   updateError.value = ''
@@ -303,6 +361,7 @@ async function openUpdatePage() {
 }
 
 onMounted(async () => {
+  setupUpdateListeners()
   try {
     const [loadedSettings, loadedVersion] = await Promise.all([
       Call.ByName('main.AppService.GetSettings'),
@@ -315,6 +374,10 @@ onMounted(async () => {
     error.value = err instanceof Error ? err.message : String(err)
     loading.value = false
   }
+})
+
+onBeforeUnmount(() => {
+  updateUnsubscribers.splice(0).forEach(unsubscribe => unsubscribe())
 })
 </script>
 
@@ -610,16 +673,37 @@ onMounted(async () => {
         <div class="min-w-0">
           <strong>{{ updateInfo.message }}</strong>
           <p v-if="updateInfo.available && updateInfo.releaseName" class="mt-1">{{ updateInfo.releaseName }}</p>
-          <p v-if="updateInfo.available" class="mt-1">The release page contains the signed installer and release notes.</p>
+          <p v-if="updateInfo.available" class="mt-1">
+            {{ updateInfo.artifactName }} · {{ formatUpdateBytes(updateInfo.artifactSize) }}
+          </p>
+          <div v-if="updateBusy" class="update-progress mt-3">
+            <div class="update-progress-track"><span :style="{ width: `${updateProgressPercent}%` }" /></div>
+            <div class="mt-1 flex justify-between gap-3">
+              <span>{{ updateStage }}</span>
+              <span v-if="updateProgress?.total">
+                {{ updateProgressPercent }}% · {{ formatUpdateBytes(updateProgress.written) }} / {{ formatUpdateBytes(updateProgress.total) }}
+              </span>
+            </div>
+          </div>
         </div>
         <button
           v-if="updateInfo.available && updateInfo.releaseUrl"
           class="primary-button shrink-0"
-          @click="openUpdatePage"
+          :disabled="updateBusy"
+          @click="applyUpdate"
         >
-          Get v{{ updateInfo.latestVersion }}
+          {{ updateBusy ? 'Updating…' : `Update & Restart to v${updateInfo.latestVersion}` }}
         </button>
       </div>
+
+      <button
+        v-if="updateInfo?.available && updateInfo.releaseUrl"
+        class="mt-3 text-xs text-zinc-500 underline decoration-zinc-700 underline-offset-4 hover:text-cyan-400"
+        :disabled="updateBusy"
+        @click="openUpdatePage"
+      >
+        Open release page instead
+      </button>
 
       <div v-if="updateError" class="mt-4 whitespace-pre-wrap rounded-lg border border-red-900 bg-red-950/30 p-4 text-sm text-red-300">
         {{ updateError }}
@@ -679,6 +763,9 @@ onMounted(async () => {
 .update-result.current { border-color:rgb(49 201 145/.18); background:rgb(49 201 145/.045); }
 .update-result strong { color:var(--settings-text); font-size:.78rem; }
 .update-result p { color:var(--settings-faint); font-size:.65rem; }
+.update-progress { min-width:18rem; color:var(--settings-faint); font-size:.62rem; }
+.update-progress-track { height:.32rem; overflow:hidden; border-radius:999px; background:rgb(255 255 255/.08); }
+.update-progress-track span { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#0a68ff,#00e5ff); transition:width 120ms linear; }
 
 @media (max-width: 760px) {
   .version-details { grid-template-columns:repeat(2,minmax(0,1fr)); }

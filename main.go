@@ -7,6 +7,8 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
+	"github.com/wailsapp/wails/v3/pkg/updater"
+	"github.com/wailsapp/wails/v3/pkg/updater/providers/github"
 )
 
 //go:embed all:frontend/dist
@@ -75,6 +77,23 @@ func main() {
 			Handler: application.AssetFileServerFS(assets),
 		},
 	})
+
+	githubUpdates, err := github.New(github.Config{
+		Repository:    "Tomnerb/DevStack",
+		ChecksumAsset: "SHA256SUMS",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := app.Updater.Init(updater.Config{
+		CurrentVersion: currentVersion(),
+		Providers: []updater.Provider{
+			requiredChecksumProvider{provider: githubUpdates},
+		},
+		Window: updater.WindowNone,
+	}); err != nil {
+		log.Fatal(err)
+	}
 
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:           "main",

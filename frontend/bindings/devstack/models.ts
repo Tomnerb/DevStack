@@ -264,6 +264,8 @@ export interface UpdateInfo {
     "publishedAt": string;
     "notes": string;
     "message": string;
+    "artifactName": string;
+    "artifactSize": number;
 }
 
 export interface VersionInfo {

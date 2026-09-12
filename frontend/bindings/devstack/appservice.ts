@@ -9,6 +9,15 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+/**
+ * ApplyUpdate downloads the platform-specific release, verifies its SHA-256
+ * digest, stages it, and restarts DevStack through Wails' detached updater
+ * helper. The running application is only replaced after it has exited.
+ */
+export function ApplyUpdate(): $CancellablePromise<void> {
+    return $Call.ByID(833371355);
+}
+
 export function CheckForUpdates(): $CancellablePromise<$models.UpdateInfo> {
     return $Call.ByID(3671876993);
 }
